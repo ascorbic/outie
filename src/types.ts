@@ -45,6 +45,8 @@ export interface Message {
 export interface Env {
   OUTIE: DurableObjectNamespace;
   REPOS: R2Bucket;
-  ANTHROPIC_API_KEY: string;
+  AI: Ai;
+  // For OpenCode in sandbox - AI Gateway auth token
+  CF_AIG_TOKEN?: string;
   ENVIRONMENT: string;
 }

@@ -390,7 +390,7 @@ You have access to tools for managing your memory and scheduling. Use them proac
 Be direct and helpful. Your memory persists across conversations.`;
   }
 
-  // Main chat endpoint
+  // Main chat endpoint using Workers AI
   async chat(userMessage: string): Promise<string> {
     await this.init();
 
@@ -404,68 +404,40 @@ Be direct and helpful. Your memory persists across conversations.`;
     this.saveMessage(userMsg);
     this.state.conversationHistory.push(userMsg);
 
-    // Build messages for Claude
-    const messages = this.state.conversationHistory.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build messages for Workers AI
+    const messages: Array<{
+      role: "system" | "user" | "assistant";
+      content: string;
+    }> = [
+      { role: "system", content: this.buildSystemPrompt() },
+      ...this.state.conversationHistory.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    ];
 
-    // Call Claude API
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": this.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        system: this.buildSystemPrompt(),
+    // Call Workers AI
+    // Using llama 3.3 70B - good balance of capability and speed
+    const response = await this.env.AI.run(
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      {
         messages,
-        tools: [...MEMORY_TOOLS, ...SCHEDULING_TOOLS],
-      }),
-    });
+        max_tokens: 2048,
+      },
+    );
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Claude API error: ${error}`);
-    }
-
-    const data = (await response.json()) as {
-      content: Array<
-        | { type: "text"; text: string }
-        | {
-            type: "tool_use";
-            id: string;
-            name: string;
-            input: Record<string, unknown>;
-          }
-      >;
-      stop_reason: string;
-    };
-
-    // Process response
-    let assistantContent = "";
-    const toolResults: Array<{ tool_use_id: string; content: string }> = [];
-
-    for (const block of data.content) {
-      if (block.type === "text") {
-        assistantContent += block.text;
-      } else if (block.type === "tool_use") {
-        const result = await this.handleToolCall(block.name, block.input);
-        toolResults.push({ tool_use_id: block.id, content: result });
-      }
-    }
-
-    // If there were tool calls, we need to continue the conversation
-    if (toolResults.length > 0 && data.stop_reason === "tool_use") {
-      // For now, just append tool results to response
-      // In production, would continue the conversation with Claude
-      assistantContent +=
-        "\n\n[Tool results: " +
-        toolResults.map((r) => r.content).join(", ") +
-        "]";
+    // Workers AI returns response as string or object with response field
+    let assistantContent: string;
+    if (typeof response === "string") {
+      assistantContent = response;
+    } else if (
+      response &&
+      typeof response === "object" &&
+      "response" in response
+    ) {
+      assistantContent = String(response.response);
+    } else {
+      assistantContent = "Error: Unexpected response format";
     }
 
     // Save assistant message

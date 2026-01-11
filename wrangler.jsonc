@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-01-10",
 
+  // Workers AI for chat in the DO
+  "ai": {
+    "binding": "AI",
+  },
+
   // Durable Objects
   "durable_objects": {
     "bindings": [
@@ -29,14 +34,14 @@
     },
   ],
 
-  // Sandbox for code execution (uncomment when ready)
+  // Sandbox for code execution with OpenCode
   // "containers": {
   //   "binding": "SANDBOX",
   //   "image": "./Dockerfile"
   // },
 
   // Secrets (set via wrangler secret put):
-  // - ANTHROPIC_API_KEY
+  // - CF_AIG_TOKEN: AI Gateway auth token for OpenCode in sandbox
 
   "vars": {
     "ENVIRONMENT": "development",
