@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "outie",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-10",
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OUTIE",
+        "class_name": "Outie",
+      },
+    ],
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Outie"],
+    },
+  ],
+
+  // R2 bucket for repo persistence
+  "r2_buckets": [
+    {
+      "binding": "REPOS",
+      "bucket_name": "outie-repos",
+    },
+  ],
+
+  // Sandbox for code execution (uncomment when ready)
+  // "containers": {
+  //   "binding": "SANDBOX",
+  //   "image": "./Dockerfile"
+  // },
+
+  // Secrets (set via wrangler secret put):
+  // - ANTHROPIC_API_KEY
+
+  "vars": {
+    "ENVIRONMENT": "development",
+  },
+}
