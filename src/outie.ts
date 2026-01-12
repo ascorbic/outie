@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { generateText, stepCountIs } from "ai";
+import { createWorkersAI } from "workers-ai-provider";
 import type {
   Env,
   OutieState,
@@ -6,15 +8,13 @@ import type {
   JournalEntry,
   Reminder,
   Message,
+  ConversationSummary,
 } from "./types";
-import {
-  DEFAULT_MEMORY_BLOCKS,
-  renderMemoryBlocks,
-  MEMORY_TOOLS,
-} from "./memory";
-import { getNextCronTime, SCHEDULING_TOOLS } from "./scheduling";
-import { WEB_SEARCH_TOOLS, searchWeb, searchNews } from "./web-search";
-import { WEB_FETCH_TOOLS, fetchPageAsMarkdown } from "./web-fetch";
+import { DEFAULT_MEMORY_BLOCKS, renderMemoryBlocks } from "./memory";
+import { getNextCronTime } from "./scheduling";
+import { searchWeb, searchNews } from "./web-search";
+import { fetchPageAsMarkdown } from "./web-fetch";
+import { createTools } from "./tools";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
@@ -73,6 +73,15 @@ export class Outie extends DurableObject<Env> {
         content TEXT,
         timestamp INTEGER
       );
+      
+      CREATE TABLE IF NOT EXISTS conversation_summary (
+        id TEXT PRIMARY KEY,
+        timestamp INTEGER,
+        content TEXT,
+        from_timestamp INTEGER,
+        to_timestamp INTEGER,
+        message_count INTEGER
+      );
     `);
 
     // Load memory blocks
@@ -98,7 +107,7 @@ export class Outie extends DurableObject<Env> {
 
     // If no blocks, initialize with defaults
     if (blocks.length === 0) {
-      for (const [label, block] of Object.entries(DEFAULT_MEMORY_BLOCKS)) {
+      for (const [, block] of Object.entries(DEFAULT_MEMORY_BLOCKS)) {
         this.saveMemoryBlock(block);
       }
     }
@@ -141,6 +150,30 @@ export class Outie extends DurableObject<Env> {
       timestamp: m.timestamp,
     }));
 
+    // Load conversation summary if exists
+    const summaries = this.ctx.storage.sql
+      .exec<{
+        id: string;
+        timestamp: number;
+        content: string;
+        from_timestamp: number;
+        to_timestamp: number;
+        message_count: number;
+      }>("SELECT * FROM conversation_summary ORDER BY timestamp DESC LIMIT 1")
+      .toArray();
+
+    if (summaries.length > 0) {
+      const s = summaries[0];
+      this.state.conversationSummary = {
+        id: s.id,
+        timestamp: s.timestamp,
+        content: s.content,
+        fromTimestamp: s.from_timestamp,
+        toTimestamp: s.to_timestamp,
+        messageCount: s.message_count,
+      };
+    }
+
     this.initialized = true;
   }
 
@@ -162,7 +195,6 @@ export class Outie extends DurableObject<Env> {
     const result = await this.env.AI.run("@cf/baai/bge-small-en-v1.5", {
       text: [text],
     });
-    // Result has data array of embeddings
     if ("data" in result && result.data && result.data.length > 0) {
       return result.data[0];
     }
@@ -184,7 +216,6 @@ export class Outie extends DurableObject<Env> {
 
   // Save journal entry to SQLite with embedding
   private async saveJournalEntry(entry: JournalEntry): Promise<void> {
-    // Generate embedding for the content
     const embedding = await this.getEmbedding(
       `${entry.topic}: ${entry.content}`,
     );
@@ -200,14 +231,12 @@ export class Outie extends DurableObject<Env> {
   }
 
   // Semantic search over journal entries
-  private async searchJournal(
+  private async searchJournalEntries(
     query: string,
     limit: number = 5,
   ): Promise<Array<{ entry: JournalEntry; score: number }>> {
-    // Get query embedding
     const queryEmbedding = await this.getEmbedding(query);
 
-    // Load all journal entries with embeddings
     const entries = this.ctx.storage.sql
       .exec<{
         id: string;
@@ -218,7 +247,6 @@ export class Outie extends DurableObject<Env> {
       }>("SELECT * FROM journal WHERE embedding IS NOT NULL")
       .toArray();
 
-    // Calculate similarity scores
     const results = entries
       .map((e) => {
         const embedding = e.embedding ? JSON.parse(e.embedding) : null;
@@ -235,7 +263,7 @@ export class Outie extends DurableObject<Env> {
           score,
         };
       })
-      .filter((r) => r.score > 0.3) // Minimum similarity threshold
+      .filter((r) => r.score > 0.3)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
@@ -272,6 +300,86 @@ export class Outie extends DurableObject<Env> {
     );
   }
 
+  // Summarize old messages when history exceeds threshold
+  private async summarizeIfNeeded(): Promise<void> {
+    const SUMMARIZE_THRESHOLD = 50;
+    const SUMMARIZE_RATIO = 0.7;
+
+    const history = this.state.conversationHistory;
+    if (history.length < SUMMARIZE_THRESHOLD) return;
+
+    const numToSummarize = Math.floor(history.length * SUMMARIZE_RATIO);
+    const toSummarize = history.slice(0, numToSummarize);
+    const toKeep = history.slice(numToSummarize);
+
+    const conversationText = toSummarize
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+      .join("\n\n");
+
+    const previousSummary = this.state.conversationSummary
+      ? `Previous summary:\n${this.state.conversationSummary.content}\n\n`
+      : "";
+
+    console.log(
+      `[SUMMARIZE] Summarizing ${numToSummarize} messages (keeping ${toKeep.length})`,
+    );
+
+    const workersai = createWorkersAI({ binding: this.env.AI });
+
+    const { text: summaryText } = await generateText({
+      // @ts-expect-error - model name is valid but not in provider types
+      model: workersai("@cf/meta/llama-3.1-8b-instruct"),
+      system: `You are a summarization assistant. Summarize the following conversation concisely, preserving:
+1. Key facts and decisions made
+2. Important context about the user
+3. Any commitments or follow-ups mentioned
+4. The overall flow of topics discussed
+
+Keep the summary under 500 words. Focus on what would be important to know if continuing this conversation later.`,
+      prompt: `${previousSummary}Conversation to summarize:\n\n${conversationText}`,
+    });
+
+    if (!summaryText) {
+      console.error("[SUMMARIZE] Failed to generate summary");
+      return;
+    }
+
+    const summary: ConversationSummary = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      content: summaryText,
+      fromTimestamp: toSummarize[0]?.timestamp ?? Date.now(),
+      toTimestamp: toSummarize[toSummarize.length - 1]?.timestamp ?? Date.now(),
+      messageCount:
+        (this.state.conversationSummary?.messageCount ?? 0) + numToSummarize,
+    };
+
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO conversation_summary 
+       (id, timestamp, content, from_timestamp, to_timestamp, message_count) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      summary.id,
+      summary.timestamp,
+      summary.content,
+      summary.fromTimestamp,
+      summary.toTimestamp,
+      summary.messageCount,
+    );
+
+    // Delete summarized messages from SQLite
+    for (const msg of toSummarize) {
+      this.ctx.storage.sql.exec("DELETE FROM messages WHERE id = ?", msg.id);
+    }
+
+    this.state.conversationSummary = summary;
+    this.state.conversationHistory = toKeep;
+
+    console.log(
+      `[SUMMARIZE] Created summary (${summaryText.length} chars), total messages summarized: ${summary.messageCount}`,
+    );
+  }
+
   // Schedule next alarm for reminders
   private async scheduleNextAlarm(): Promise<void> {
     const reminders = Object.values(this.state.reminders);
@@ -300,21 +408,17 @@ export class Outie extends DurableObject<Env> {
       const time =
         reminder.scheduledTime ?? getNextCronTime(reminder.cronExpression!);
 
-      // If this is a one-shot reminder that's more than 1 hour in the past, just delete it
       if (reminder.scheduledTime && time < now - 3600000) {
         console.log(`Deleting expired reminder: ${reminder.id}`);
         this.deleteReminder(reminder.id);
         continue;
       }
 
-      // Fire if within 1 minute of scheduled time
       if (Math.abs(time - now) < 60000) {
-        // Process the reminder
         console.log(
           `Firing reminder: ${reminder.id} - ${reminder.description}`,
         );
 
-        // Process the reminder payload with AI
         try {
           const response = await this.chat(
             `[REMINDER TRIGGERED: ${reminder.description}]\n\n${reminder.payload}\n\nPlease process this reminder and take any appropriate actions. Write a journal entry about what you did.`,
@@ -324,251 +428,254 @@ export class Outie extends DurableObject<Env> {
           console.error(`Failed to process reminder: ${error}`);
         }
 
-        // If one-shot, delete it
         if (reminder.scheduledTime) {
           this.deleteReminder(reminder.id);
         }
       }
     }
 
-    // Schedule next alarm
     await this.scheduleNextAlarm();
   }
 
-  // Handle tool calls
-  private async handleToolCall(
-    name: string,
-    args: Record<string, unknown>,
+  // ==========================================
+  // Tool handler methods (called by tools.ts)
+  // ==========================================
+
+  memoryInsert(block: string, content: string, line: number): string {
+    const memBlock = this.state.memoryBlocks[block];
+    if (!memBlock) {
+      return `Error: Unknown memory block "${block}". Available: persona, human, scratchpad`;
+    }
+
+    const lines = memBlock.value.split("\n");
+    lines.splice(line, 0, content);
+    memBlock.value = lines.join("\n");
+    memBlock.lastUpdated = Date.now();
+
+    if (memBlock.value.length > memBlock.limit) {
+      this.saveMemoryBlock(memBlock);
+      return `Warning: Block "${block}" exceeds limit (${memBlock.value.length}/${memBlock.limit})`;
+    }
+
+    this.saveMemoryBlock(memBlock);
+    return `Inserted into "${block}" at line ${line}`;
+  }
+
+  memoryReplace(block: string, oldStr: string, newStr: string): string {
+    const memBlock = this.state.memoryBlocks[block];
+    if (!memBlock) {
+      return `Error: Unknown memory block "${block}"`;
+    }
+
+    if (!memBlock.value.includes(oldStr)) {
+      return `Error: "${oldStr}" not found in block "${block}"`;
+    }
+
+    memBlock.value = memBlock.value.replace(oldStr, newStr);
+    memBlock.lastUpdated = Date.now();
+    this.saveMemoryBlock(memBlock);
+    return `Replaced in "${block}"`;
+  }
+
+  async journalWrite(topic: string, content: string): Promise<string> {
+    const entry: JournalEntry = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      topic,
+      content,
+    };
+    await this.saveJournalEntry(entry);
+    return `Journal entry saved: ${topic}`;
+  }
+
+  async journalSearch(query: string, limit: number): Promise<string> {
+    const results = await this.searchJournalEntries(query, limit);
+
+    if (results.length === 0) {
+      return "No relevant journal entries found";
+    }
+
+    return results
+      .map(
+        (r) =>
+          `[${new Date(r.entry.timestamp).toISOString()}] ${r.entry.topic} (${(r.score * 100).toFixed(0)}% match): ${r.entry.content}`,
+      )
+      .join("\n\n");
+  }
+
+  async scheduleReminder(
+    id: string,
+    description: string,
+    payload: string,
+    cron: string,
   ): Promise<string> {
-    switch (name) {
-      case "memory_insert": {
-        // Handle both 'block' and 'topic' (model sometimes confuses parameters)
-        const blockName = (args.block as string) || (args.topic as string);
-        const block = this.state.memoryBlocks[blockName];
-        if (!block)
-          return `Error: Unknown memory block "${blockName}". Available: persona, human, scratchpad`;
+    const reminder: Reminder = {
+      id,
+      description,
+      payload,
+      cronExpression: cron,
+    };
+    this.state.reminders[id] = reminder;
+    this.saveReminder(reminder);
+    await this.scheduleNextAlarm();
+    return `Scheduled reminder "${id}": ${description}`;
+  }
 
-        const lines = block.value.split("\n");
-        const line = (args.line as number) ?? 0;
-        lines.splice(line, 0, args.content as string);
-        block.value = lines.join("\n");
-        block.lastUpdated = Date.now();
+  async scheduleOnce(
+    id: string,
+    description: string,
+    payload: string,
+    datetime: string,
+  ): Promise<string> {
+    const scheduledTime = new Date(datetime).getTime();
+    const reminder: Reminder = {
+      id,
+      description,
+      payload,
+      scheduledTime,
+    };
+    this.state.reminders[id] = reminder;
+    this.saveReminder(reminder);
+    await this.scheduleNextAlarm();
+    return `Scheduled one-time reminder "${id}" for ${datetime}`;
+  }
 
-        if (block.value.length > block.limit) {
-          return `Warning: Block "${blockName}" exceeds limit (${block.value.length}/${block.limit})`;
-        }
+  cancelReminder(id: string): string {
+    if (!this.state.reminders[id]) {
+      return `Error: Reminder "${id}" not found`;
+    }
+    this.deleteReminder(id);
+    return `Cancelled reminder "${id}"`;
+  }
 
-        this.saveMemoryBlock(block);
-        return `Inserted into "${blockName}" at line ${line}`;
+  listReminders(): string {
+    const reminders = Object.values(this.state.reminders);
+    if (reminders.length === 0) {
+      return "No scheduled reminders";
+    }
+    return reminders
+      .map((r) => {
+        const schedule =
+          r.cronExpression ?? new Date(r.scheduledTime!).toISOString();
+        return `- ${r.id}: ${r.description} (${schedule})`;
+      })
+      .join("\n");
+  }
+
+  async webSearch(query: string, count: number): Promise<string> {
+    const apiKey = this.env.BRAVE_SEARCH_API_KEY;
+    if (!apiKey) {
+      return "Error: BRAVE_SEARCH_API_KEY not configured";
+    }
+
+    try {
+      const results = await searchWeb(query, apiKey, {
+        count: Math.min(count, 10),
+      });
+      if (results.length === 0) {
+        return `No results found for "${query}"`;
       }
 
-      case "memory_replace": {
-        const block = this.state.memoryBlocks[args.block as string];
-        if (!block) return `Error: Unknown memory block "${args.block}"`;
-
-        const oldStr = args.old_str as string;
-        const newStr = args.new_str as string;
-
-        if (!block.value.includes(oldStr)) {
-          return `Error: "${oldStr}" not found in block "${args.block}"`;
-        }
-
-        block.value = block.value.replace(oldStr, newStr);
-        block.lastUpdated = Date.now();
-        this.saveMemoryBlock(block);
-        return `Replaced in "${args.block}"`;
+      // Add URLs to allowlist
+      for (const r of results) {
+        this.allowedUrls.add(r.url);
       }
 
-      case "journal_write": {
-        const entry: JournalEntry = {
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-          topic: args.topic as string,
-          content: args.content as string,
-        };
-        await this.saveJournalEntry(entry);
-        return `Journal entry saved: ${entry.topic}`;
+      return results
+        .map(
+          (r) =>
+            `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
+        )
+        .join("\n\n");
+    } catch (error) {
+      return `Search error: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  async newsSearch(query: string, count: number): Promise<string> {
+    const apiKey = this.env.BRAVE_SEARCH_API_KEY;
+    if (!apiKey) {
+      return "Error: BRAVE_SEARCH_API_KEY not configured";
+    }
+
+    try {
+      const results = await searchNews(query, apiKey, {
+        count: Math.min(count, 10),
+      });
+      if (results.length === 0) {
+        return `No news found for "${query}"`;
       }
 
-      case "journal_search": {
-        const query = args.query as string;
-        const limit = (args.limit as number) ?? 5;
-
-        // Semantic search using embeddings
-        const results = await this.searchJournal(query, limit);
-
-        if (results.length === 0) {
-          return "No relevant journal entries found";
-        }
-
-        return results
-          .map(
-            (r) =>
-              `[${new Date(r.entry.timestamp).toISOString()}] ${r.entry.topic} (${(r.score * 100).toFixed(0)}% match): ${r.entry.content}`,
-          )
-          .join("\n\n");
+      // Add URLs to allowlist
+      for (const r of results) {
+        this.allowedUrls.add(r.url);
       }
 
-      case "schedule_reminder": {
-        const reminder: Reminder = {
-          id: args.id as string,
-          description: args.description as string,
-          payload: args.payload as string,
-          cronExpression: args.cron as string,
-        };
-        this.state.reminders[reminder.id] = reminder;
-        this.saveReminder(reminder);
-        await this.scheduleNextAlarm();
-        return `Scheduled reminder "${reminder.id}": ${reminder.description}`;
+      return results
+        .map(
+          (r) =>
+            `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
+        )
+        .join("\n\n");
+    } catch (error) {
+      return `News search error: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  async fetchPage(url: string, waitForJs: boolean): Promise<string> {
+    // Security: Only allow URLs from search results or user input
+    if (!this.allowedUrls.has(url)) {
+      return `BLOCKED: URL "${url}" not in allowlist. URLs must come from search results or user messages.`;
+    }
+
+    const apiToken = this.env.CF_API_TOKEN;
+    const accountId = this.env.CF_ACCOUNT_ID;
+    if (!apiToken || !accountId) {
+      return "Error: CF_API_TOKEN or CF_ACCOUNT_ID not configured";
+    }
+
+    try {
+      const markdown = await fetchPageAsMarkdown(url, accountId, apiToken, {
+        waitUntil: waitForJs ? "networkidle0" : undefined,
+      });
+
+      if (!markdown) {
+        return `No content found at ${url}`;
       }
 
-      case "schedule_once": {
-        const datetime = new Date(args.datetime as string).getTime();
-        const reminder: Reminder = {
-          id: args.id as string,
-          description: args.description as string,
-          payload: args.payload as string,
-          scheduledTime: datetime,
-        };
-        this.state.reminders[reminder.id] = reminder;
-        this.saveReminder(reminder);
-        await this.scheduleNextAlarm();
-        return `Scheduled one-time reminder "${reminder.id}" for ${args.datetime}`;
+      // Truncate if too long
+      if (markdown.length > 8000) {
+        return markdown.slice(0, 8000) + "\n\n[Content truncated...]";
       }
-
-      case "cancel_reminder": {
-        const id = args.id as string;
-        if (!this.state.reminders[id]) {
-          return `Error: Reminder "${id}" not found`;
-        }
-        this.deleteReminder(id);
-        return `Cancelled reminder "${id}"`;
-      }
-
-      case "list_reminders": {
-        const reminders = Object.values(this.state.reminders);
-        if (reminders.length === 0) {
-          return "No scheduled reminders";
-        }
-        return reminders
-          .map((r) => {
-            const schedule =
-              r.cronExpression ?? new Date(r.scheduledTime!).toISOString();
-            return `- ${r.id}: ${r.description} (${schedule})`;
-          })
-          .join("\n");
-      }
-
-      case "web_search": {
-        const apiKey = this.env.BRAVE_SEARCH_API_KEY;
-        if (!apiKey) {
-          return "Error: BRAVE_SEARCH_API_KEY not configured";
-        }
-        const query = args.query as string;
-        const count = Math.min((args.count as number) ?? 5, 10);
-        try {
-          const results = await searchWeb(query, apiKey, { count });
-          if (results.length === 0) {
-            return `No results found for "${query}"`;
-          }
-          // Add search result URLs to allowlist for fetch_page
-          for (const r of results) {
-            this.allowedUrls.add(r.url);
-          }
-          return results
-            .map(
-              (r) =>
-                `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
-            )
-            .join("\n\n");
-        } catch (error) {
-          return `Search error: ${error instanceof Error ? error.message : String(error)}`;
-        }
-      }
-
-      case "news_search": {
-        const apiKey = this.env.BRAVE_SEARCH_API_KEY;
-        if (!apiKey) {
-          return "Error: BRAVE_SEARCH_API_KEY not configured";
-        }
-        const query = args.query as string;
-        const count = Math.min((args.count as number) ?? 5, 10);
-        try {
-          const results = await searchNews(query, apiKey, { count });
-          if (results.length === 0) {
-            return `No news found for "${query}"`;
-          }
-          // Add search result URLs to allowlist for fetch_page
-          for (const r of results) {
-            this.allowedUrls.add(r.url);
-          }
-          return results
-            .map(
-              (r) =>
-                `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
-            )
-            .join("\n\n");
-        } catch (error) {
-          return `News search error: ${error instanceof Error ? error.message : String(error)}`;
-        }
-      }
-
-      case "fetch_page": {
-        const url = args.url as string;
-
-        // Security: Only allow URLs from search results or user input
-        // This check MUST happen before anything else
-        if (!this.allowedUrls.has(url)) {
-          return `BLOCKED: URL "${url}" not in allowlist. Allowed URLs: [${[...this.allowedUrls].join(", ")}]`;
-        }
-
-        const apiToken = this.env.CF_API_TOKEN;
-        const accountId = this.env.CF_ACCOUNT_ID;
-        if (!apiToken || !accountId) {
-          return "Error: CF_API_TOKEN or CF_ACCOUNT_ID not configured";
-        }
-
-        const waitForJs = args.wait_for_js as boolean;
-        console.log(
-          `[FETCH] Fetching ${url} with account ${accountId}, token ${apiToken.slice(0, 4)}...`,
-        );
-        try {
-          const markdown = await fetchPageAsMarkdown(url, accountId, apiToken, {
-            waitUntil: waitForJs ? "networkidle0" : undefined,
-          });
-          console.log(`[FETCH] Success, got ${markdown.length} chars`);
-          if (!markdown) {
-            return `No content found at ${url}`;
-          }
-          // Truncate if too long (keep first 8000 chars to fit in context)
-          if (markdown.length > 8000) {
-            return markdown.slice(0, 8000) + "\n\n[Content truncated...]";
-          }
-          return markdown;
-        } catch (error) {
-          const errMsg = error instanceof Error ? error.message : String(error);
-          console.error(`[FETCH] Error: ${errMsg}`);
-          return `Fetch error: ${errMsg}`;
-        }
-      }
-
-      default:
-        return `Unknown tool: ${name}`;
+      return markdown;
+    } catch (error) {
+      return `Fetch error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
   // Build system prompt with memory blocks
   private buildSystemPrompt(): string {
     const now = new Date();
+    const summarySection = this.state.conversationSummary
+      ? `## Conversation Summary
+The following summarizes ${this.state.conversationSummary.messageCount} earlier messages:
+
+${this.state.conversationSummary.content}
+
+---
+
+`
+      : "";
+
     return `You are Outie, a stateful AI assistant with persistent memory.
 
 Current date/time: ${now.toISOString()} (${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })})
 
-${renderMemoryBlocks(this.state.memoryBlocks)}
+${summarySection}${renderMemoryBlocks(this.state.memoryBlocks)}
 
 ## Tools
 
-You MUST use tools to persist information. Your text responses are ephemeral but tool calls persist.
+You have tools to persist information. Your text responses are ephemeral but tool calls persist.
 
 When the user tells you something to remember:
 - Use memory_insert with block="human" to store information about the user
@@ -584,20 +691,19 @@ For scheduling reminders:
 - Always use the CURRENT year (${now.getFullYear()}) when scheduling
 
 For web search:
-- Use web_search to find current information, research topics, or answer questions about recent events
-- Use news_search specifically for breaking news or recent developments
+- Use web_search to find current information
+- Use news_search for breaking news or recent developments
 
 For fetching web pages:
-- Use fetch_page to read the full content of a webpage (articles, documentation, blog posts)
-- Set wait_for_js=true for JavaScript-heavy pages or SPAs
-- IMPORTANT: You can ONLY fetch URLs that came from search results or were provided by the user. Do not fabricate URLs.
+- Use fetch_page to read webpage content
+- IMPORTANT: You can ONLY fetch URLs from search results or user messages
 
-IMPORTANT: If someone asks you to remember something, you MUST call a memory tool. Do not just acknowledge it in text.
+IMPORTANT: If someone asks you to remember something, you MUST call a memory tool.
 
 Be direct and helpful.`;
   }
 
-  // Main chat endpoint using Workers AI with tool execution loop
+  // Main chat endpoint using Vercel AI SDK
   async chat(userMessage: string): Promise<string> {
     await this.init();
 
@@ -605,11 +711,7 @@ Be direct and helpful.`;
     const userUrls = this.extractUrls(userMessage);
     for (const url of userUrls) {
       this.allowedUrls.add(url);
-      console.log(`[URL ALLOWLIST] Added from user message: ${url}`);
     }
-    console.log(
-      `[URL ALLOWLIST] Current size: ${this.allowedUrls.size}, URLs: ${[...this.allowedUrls].join(", ")}`,
-    );
 
     // Save user message
     const userMsg: Message = {
@@ -621,196 +723,46 @@ Be direct and helpful.`;
     this.saveMessage(userMsg);
     this.state.conversationHistory.push(userMsg);
 
-    // Tool execution loop - max 5 iterations to prevent infinite loops
-    const MAX_TOOL_ITERATIONS = 5;
-    const MAX_CONTEXT_MESSAGES = 20; // Limit context to avoid overwhelming the model
-    let finalResponse = "";
+    // Build messages for AI
+    const MAX_CONTEXT_MESSAGES = 20;
+    const filteredHistory =
+      this.state.conversationHistory.slice(-MAX_CONTEXT_MESSAGES);
 
-    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      // Build messages for Workers AI (OpenAI format)
-      type OpenAIMessage = {
-        role: "system" | "user" | "assistant" | "tool";
-        content: string | null;
-        tool_call_id?: string;
-        name?: string;
-        tool_calls?: Array<{
-          id: string;
-          type: "function";
-          function: { name: string; arguments: string };
-        }>;
-      };
+    const messages = filteredHistory.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
-      // Filter and limit conversation history for context
-      // Only filter OLD errors - keep recent ones so model can respond appropriately
-      const historyLength = this.state.conversationHistory.length;
-      const filteredHistory = this.state.conversationHistory
-        .filter((m, idx) => {
-          // Keep all non-tool messages
-          if (m.role !== "tool") return true;
-          // Keep recent messages (last 10) even if errors - model needs to see them
-          if (idx >= historyLength - 10) return true;
-          // Filter out old tool errors - they poison the context
-          if (m.content.startsWith("Error:")) return false;
-          return true;
-        })
-        .slice(-MAX_CONTEXT_MESSAGES);
+    // Create Workers AI provider and tools
+    const workersai = createWorkersAI({ binding: this.env.AI });
+    const tools = createTools(this);
 
-      const messages: OpenAIMessage[] = [
-        { role: "system", content: this.buildSystemPrompt() },
-        ...filteredHistory.map((m) => {
-          const msg: OpenAIMessage = {
-            role: m.role,
-            content: m.content || "", // Workers AI requires string, not null
-          };
-          if (m.tool_calls) {
-            msg.tool_calls = m.tool_calls;
-          }
-          if (m.tool_call_id) {
-            msg.tool_call_id = m.tool_call_id;
-          }
-          if (m.name) {
-            msg.name = m.name;
-          }
-          return msg;
-        }),
-      ];
+    console.log(
+      `[CHAT] Starting generateText with ${messages.length} messages`,
+    );
 
-      // Call Workers AI with function calling
-      // Using Kimi K2 - 1T parameter model with OpenAI-compatible format
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawResponse = await (this.env.AI.run as any)(
-        "@cf/moonshotai/kimi-k2-instruct",
-        {
-          messages,
-          tools: [
-            ...MEMORY_TOOLS,
-            ...SCHEDULING_TOOLS,
-            ...WEB_SEARCH_TOOLS,
-            ...WEB_FETCH_TOOLS,
-          ].map((t) => ({
-            type: "function" as const,
-            function: {
-              name: t.name,
-              description: t.description,
-              parameters: t.parameters,
-            },
-          })),
-          max_tokens: 4096,
-        },
-      );
+    // Use Vercel AI SDK generateText with automatic tool execution
+    const { text, steps } = await generateText({
+      // @ts-expect-error - model name is valid but not in provider types
+      model: workersai("@cf/moonshotai/kimi-k2-instruct"),
+      system: this.buildSystemPrompt(),
+      messages,
+      tools,
+      stopWhen: stepCountIs(10), // Allow up to 10 tool call steps
+    });
 
-      // Debug: log the full response
-      console.log("AI Response:", JSON.stringify(rawResponse, null, 2));
-
-      // Normalize response - handle both Workers AI native and OpenAI formats
-      let textContent: string | null = null;
-      let toolCalls: Array<{
-        id: string;
-        name: string;
-        arguments: Record<string, unknown> | string;
-      }> = [];
-
-      // OpenAI format (Kimi K2)
-      if (
-        rawResponse &&
-        typeof rawResponse === "object" &&
-        "choices" in rawResponse
-      ) {
-        const choices = (
-          rawResponse as {
-            choices: Array<{
-              message: {
-                content: string | null;
-                tool_calls?: Array<{
-                  id: string;
-                  function: { name: string; arguments: string };
-                }>;
-              };
-            }>;
-          }
-        ).choices;
-        if (choices && choices[0]) {
-          textContent = choices[0].message.content;
-          if (choices[0].message.tool_calls) {
-            toolCalls = choices[0].message.tool_calls.map((tc) => ({
-              id: tc.id,
-              name: tc.function.name,
-              arguments: tc.function.arguments,
-            }));
-          }
+    // Log tool usage
+    for (const step of steps) {
+      if (step.toolCalls && step.toolCalls.length > 0) {
+        for (const tc of step.toolCalls) {
+          console.log(`[TOOL] ${tc.toolName}:`, tc.input);
         }
       }
-      // Workers AI native format
-      else if (rawResponse && typeof rawResponse === "object") {
-        const resp = rawResponse as {
-          response?: string;
-          tool_calls?: Array<{
-            id: string;
-            name: string;
-            arguments: Record<string, unknown> | string;
-          }>;
-        };
-        textContent = resp.response ?? null;
-        toolCalls = resp.tool_calls ?? [];
-      }
-      // String response
-      else if (typeof rawResponse === "string") {
-        textContent = rawResponse;
-      }
-
-      // Check if the model wants to call tools
-      if (toolCalls.length > 0) {
-        // First, add the assistant message with tool_calls
-        const assistantWithTools: Message = {
-          id: crypto.randomUUID(),
-          role: "assistant" as const,
-          content: textContent ?? "",
-          timestamp: Date.now(),
-          tool_calls: toolCalls.map((tc) => ({
-            id: tc.id,
-            type: "function" as const,
-            function: {
-              name: tc.name,
-              arguments:
-                typeof tc.arguments === "string"
-                  ? tc.arguments
-                  : JSON.stringify(tc.arguments),
-            },
-          })),
-        };
-        this.state.conversationHistory.push(assistantWithTools);
-
-        // Execute each tool call and add results
-        for (const toolCall of toolCalls) {
-          const args =
-            typeof toolCall.arguments === "string"
-              ? JSON.parse(toolCall.arguments)
-              : toolCall.arguments;
-
-          console.log(`Tool call: ${toolCall.name}`, args);
-          const result = await this.handleToolCall(toolCall.name, args);
-          console.log(`Tool result: ${result}`);
-
-          // Add tool result message
-          this.state.conversationHistory.push({
-            id: crypto.randomUUID(),
-            role: "tool" as const,
-            content: result,
-            timestamp: Date.now(),
-            tool_call_id: toolCall.id,
-            name: toolCall.name,
-          });
-        }
-        // Continue loop to get next response
-        continue;
-      }
-
-      // No tool calls - we have the final response
-      finalResponse = textContent ?? "I processed your request.";
-      break;
     }
 
-    // Save final assistant message
+    const finalResponse = text || "I processed your request.";
+
+    // Save assistant message
     const assistantMsg: Message = {
       id: crypto.randomUUID(),
       role: "assistant",
@@ -819,6 +771,9 @@ Be direct and helpful.`;
     };
     this.saveMessage(assistantMsg);
     this.state.conversationHistory.push(assistantMsg);
+
+    // Check if we need to summarize
+    await this.summarizeIfNeeded();
 
     return finalResponse;
   }
@@ -845,13 +800,14 @@ Be direct and helpful.`;
 
     if (url.pathname === "/reset" && request.method === "POST") {
       await this.init();
-      // Clear conversation history from SQLite and memory
       this.ctx.storage.sql.exec("DELETE FROM messages");
+      this.ctx.storage.sql.exec("DELETE FROM conversation_summary");
       this.state.conversationHistory = [];
+      this.state.conversationSummary = undefined;
       this.allowedUrls.clear();
       return Response.json({
         success: true,
-        message: "Conversation history cleared",
+        message: "Conversation history and summary cleared",
       });
     }
 
@@ -860,38 +816,9 @@ Be direct and helpful.`;
       return Response.json({
         allowedUrls: [...this.allowedUrls],
         historyLength: this.state.conversationHistory.length,
+        hasSummary: !!this.state.conversationSummary,
+        summaryMessageCount: this.state.conversationSummary?.messageCount ?? 0,
       });
-    }
-
-    if (url.pathname === "/memory" && request.method === "GET") {
-      await this.init();
-      return new Response(JSON.stringify(this.state.memoryBlocks), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    if (url.pathname === "/reminders" && request.method === "GET") {
-      await this.init();
-      return new Response(JSON.stringify(this.state.reminders), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    if (url.pathname === "/reset" && request.method === "POST") {
-      await this.init();
-      // Clear conversation history from SQLite and memory
-      this.ctx.storage.sql.exec("DELETE FROM messages");
-      this.state.conversationHistory = [];
-      this.allowedUrls.clear();
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Conversation history cleared",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        },
-      );
     }
 
     return new Response("Not Found", { status: 404 });

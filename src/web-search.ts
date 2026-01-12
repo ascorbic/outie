@@ -110,44 +110,4 @@ export async function searchNews(
   );
 }
 
-// Web search tools for the agent
-export const WEB_SEARCH_TOOLS = [
-  {
-    name: "web_search",
-    description:
-      "Search the web for information. Use this to find current information, answer questions about recent events, or research topics.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query",
-        },
-        count: {
-          type: "number",
-          description: "Number of results to return (default 5, max 10)",
-        },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "news_search",
-    description:
-      "Search for recent news articles. Use this to find current events, breaking news, or recent developments on a topic.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The news search query",
-        },
-        count: {
-          type: "number",
-          description: "Number of results to return (default 5, max 10)",
-        },
-      },
-      required: ["query"],
-    },
-  },
-];
+// Tool definitions moved to tools.ts (using Vercel AI SDK format)

@@ -106,26 +106,4 @@ export async function fetchPageAsMarkdown(
   return data.result ?? "";
 }
 
-// Web fetch tools for the agent
-export const WEB_FETCH_TOOLS = [
-  {
-    name: "fetch_page",
-    description:
-      "Fetch a webpage and extract its content as markdown. Use this to read articles, documentation, or any web page. Returns the page content in a clean markdown format suitable for reading.",
-    parameters: {
-      type: "object",
-      properties: {
-        url: {
-          type: "string",
-          description: "The URL of the webpage to fetch",
-        },
-        wait_for_js: {
-          type: "boolean",
-          description:
-            "Set to true for JavaScript-heavy pages or SPAs that need time to render (default false)",
-        },
-      },
-      required: ["url"],
-    },
-  },
-];
+// Tool definitions moved to tools.ts (using Vercel AI SDK format)

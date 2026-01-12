@@ -1,4 +1,4 @@
-import type { MemoryBlock, JournalEntry } from "./types";
+import type { MemoryBlock } from "./types";
 
 // Default memory blocks (Letta-style)
 export const DEFAULT_MEMORY_BLOCKS: Record<string, MemoryBlock> = {
@@ -53,62 +53,4 @@ export function renderMemoryBlocks(
   return parts.join("\n");
 }
 
-// Memory tools for the agent
-export const MEMORY_TOOLS = [
-  {
-    name: "memory_insert",
-    description: "Insert content into a memory block at a specific line",
-    parameters: {
-      type: "object",
-      properties: {
-        block: {
-          type: "string",
-          description: "Memory block label (persona, human, scratchpad)",
-        },
-        content: { type: "string", description: "Content to insert" },
-        line: {
-          type: "number",
-          description: "Line number to insert at (0 = beginning)",
-        },
-      },
-      required: ["block", "content"],
-    },
-  },
-  {
-    name: "memory_replace",
-    description: "Replace content in a memory block",
-    parameters: {
-      type: "object",
-      properties: {
-        block: { type: "string", description: "Memory block label" },
-        old_str: { type: "string", description: "String to find and replace" },
-        new_str: { type: "string", description: "Replacement string" },
-      },
-      required: ["block", "old_str", "new_str"],
-    },
-  },
-  {
-    name: "journal_write",
-    description: "Write a journal entry to archival memory",
-    parameters: {
-      type: "object",
-      properties: {
-        topic: { type: "string", description: "Short topic/category" },
-        content: { type: "string", description: "The journal entry content" },
-      },
-      required: ["topic", "content"],
-    },
-  },
-  {
-    name: "journal_search",
-    description: "Search journal entries",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        limit: { type: "number", description: "Max results (default 10)" },
-      },
-      required: ["query"],
-    },
-  },
-];
+// Tool definitions moved to tools.ts (using Vercel AI SDK format)
