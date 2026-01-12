@@ -13,10 +13,14 @@ import {
   MEMORY_TOOLS,
 } from "./memory";
 import { getNextCronTime, SCHEDULING_TOOLS } from "./scheduling";
+import { WEB_SEARCH_TOOLS, searchWeb, searchNews } from "./web-search";
+import { WEB_FETCH_TOOLS, fetchPageAsMarkdown } from "./web-fetch";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
   private initialized = false;
+  // URLs that are allowed to be fetched (from search results or user input)
+  private allowedUrls: Set<string> = new Set();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -25,6 +29,12 @@ export class Outie extends DurableObject<Env> {
       reminders: {},
       conversationHistory: [],
     };
+  }
+
+  // Extract URLs from text (user messages, search results)
+  private extractUrls(text: string): string[] {
+    const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
+    return text.match(urlRegex) || [];
   }
 
   // Initialize state from SQLite
@@ -45,7 +55,8 @@ export class Outie extends DurableObject<Env> {
         id TEXT PRIMARY KEY,
         timestamp INTEGER,
         topic TEXT,
-        content TEXT
+        content TEXT,
+        embedding TEXT
       );
       
       CREATE TABLE IF NOT EXISTS reminders (
@@ -146,15 +157,89 @@ export class Outie extends DurableObject<Env> {
     );
   }
 
-  // Save journal entry to SQLite
-  private saveJournalEntry(entry: JournalEntry): void {
+  // Generate embedding using Workers AI
+  private async getEmbedding(text: string): Promise<number[]> {
+    const result = await this.env.AI.run("@cf/baai/bge-small-en-v1.5", {
+      text: [text],
+    });
+    // Result has data array of embeddings
+    if ("data" in result && result.data && result.data.length > 0) {
+      return result.data[0];
+    }
+    throw new Error("Failed to generate embedding");
+  }
+
+  // Cosine similarity between two vectors
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  // Save journal entry to SQLite with embedding
+  private async saveJournalEntry(entry: JournalEntry): Promise<void> {
+    // Generate embedding for the content
+    const embedding = await this.getEmbedding(
+      `${entry.topic}: ${entry.content}`,
+    );
+
     this.ctx.storage.sql.exec(
-      `INSERT INTO journal (id, timestamp, topic, content) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO journal (id, timestamp, topic, content, embedding) VALUES (?, ?, ?, ?, ?)`,
       entry.id,
       entry.timestamp,
       entry.topic,
       entry.content,
+      JSON.stringify(embedding),
     );
+  }
+
+  // Semantic search over journal entries
+  private async searchJournal(
+    query: string,
+    limit: number = 5,
+  ): Promise<Array<{ entry: JournalEntry; score: number }>> {
+    // Get query embedding
+    const queryEmbedding = await this.getEmbedding(query);
+
+    // Load all journal entries with embeddings
+    const entries = this.ctx.storage.sql
+      .exec<{
+        id: string;
+        timestamp: number;
+        topic: string;
+        content: string;
+        embedding: string | null;
+      }>("SELECT * FROM journal WHERE embedding IS NOT NULL")
+      .toArray();
+
+    // Calculate similarity scores
+    const results = entries
+      .map((e) => {
+        const embedding = e.embedding ? JSON.parse(e.embedding) : null;
+        const score = embedding
+          ? this.cosineSimilarity(queryEmbedding, embedding)
+          : 0;
+        return {
+          entry: {
+            id: e.id,
+            timestamp: e.timestamp,
+            topic: e.topic,
+            content: e.content,
+          },
+          score,
+        };
+      })
+      .filter((r) => r.score > 0.3) // Minimum similarity threshold
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return results;
   }
 
   // Save reminder to SQLite
@@ -215,6 +300,13 @@ export class Outie extends DurableObject<Env> {
       const time =
         reminder.scheduledTime ?? getNextCronTime(reminder.cronExpression!);
 
+      // If this is a one-shot reminder that's more than 1 hour in the past, just delete it
+      if (reminder.scheduledTime && time < now - 3600000) {
+        console.log(`Deleting expired reminder: ${reminder.id}`);
+        this.deleteReminder(reminder.id);
+        continue;
+      }
+
       // Fire if within 1 minute of scheduled time
       if (Math.abs(time - now) < 60000) {
         // Process the reminder
@@ -222,8 +314,15 @@ export class Outie extends DurableObject<Env> {
           `Firing reminder: ${reminder.id} - ${reminder.description}`,
         );
 
-        // TODO: Actually process the payload with Claude
-        // For now just log it
+        // Process the reminder payload with AI
+        try {
+          const response = await this.chat(
+            `[REMINDER TRIGGERED: ${reminder.description}]\n\n${reminder.payload}\n\nPlease process this reminder and take any appropriate actions. Write a journal entry about what you did.`,
+          );
+          console.log(`Reminder processed: ${response}`);
+        } catch (error) {
+          console.error(`Failed to process reminder: ${error}`);
+        }
 
         // If one-shot, delete it
         if (reminder.scheduledTime) {
@@ -243,8 +342,11 @@ export class Outie extends DurableObject<Env> {
   ): Promise<string> {
     switch (name) {
       case "memory_insert": {
-        const block = this.state.memoryBlocks[args.block as string];
-        if (!block) return `Error: Unknown memory block "${args.block}"`;
+        // Handle both 'block' and 'topic' (model sometimes confuses parameters)
+        const blockName = (args.block as string) || (args.topic as string);
+        const block = this.state.memoryBlocks[blockName];
+        if (!block)
+          return `Error: Unknown memory block "${blockName}". Available: persona, human, scratchpad`;
 
         const lines = block.value.split("\n");
         const line = (args.line as number) ?? 0;
@@ -253,11 +355,11 @@ export class Outie extends DurableObject<Env> {
         block.lastUpdated = Date.now();
 
         if (block.value.length > block.limit) {
-          return `Warning: Block "${args.block}" exceeds limit (${block.value.length}/${block.limit})`;
+          return `Warning: Block "${blockName}" exceeds limit (${block.value.length}/${block.limit})`;
         }
 
         this.saveMemoryBlock(block);
-        return `Inserted into "${args.block}" at line ${line}`;
+        return `Inserted into "${blockName}" at line ${line}`;
       }
 
       case "memory_replace": {
@@ -284,39 +386,25 @@ export class Outie extends DurableObject<Env> {
           topic: args.topic as string,
           content: args.content as string,
         };
-        this.saveJournalEntry(entry);
+        await this.saveJournalEntry(entry);
         return `Journal entry saved: ${entry.topic}`;
       }
 
       case "journal_search": {
         const query = args.query as string;
-        const limit = (args.limit as number) ?? 10;
+        const limit = (args.limit as number) ?? 5;
 
-        // Simple search - in production would use FTS or vector search
-        const results = this.ctx.storage.sql
-          .exec<{
-            id: string;
-            timestamp: number;
-            topic: string;
-            content: string;
-          }>(
-            `SELECT * FROM journal 
-           WHERE topic LIKE ? OR content LIKE ?
-           ORDER BY timestamp DESC LIMIT ?`,
-            `%${query}%`,
-            `%${query}%`,
-            limit,
-          )
-          .toArray();
+        // Semantic search using embeddings
+        const results = await this.searchJournal(query, limit);
 
         if (results.length === 0) {
-          return "No journal entries found";
+          return "No relevant journal entries found";
         }
 
         return results
           .map(
             (r) =>
-              `[${new Date(r.timestamp).toISOString()}] ${r.topic}: ${r.content}`,
+              `[${new Date(r.entry.timestamp).toISOString()}] ${r.entry.topic} (${(r.score * 100).toFixed(0)}% match): ${r.entry.content}`,
           )
           .join("\n\n");
       }
@@ -371,6 +459,99 @@ export class Outie extends DurableObject<Env> {
           .join("\n");
       }
 
+      case "web_search": {
+        const apiKey = this.env.BRAVE_SEARCH_API_KEY;
+        if (!apiKey) {
+          return "Error: BRAVE_SEARCH_API_KEY not configured";
+        }
+        const query = args.query as string;
+        const count = Math.min((args.count as number) ?? 5, 10);
+        try {
+          const results = await searchWeb(query, apiKey, { count });
+          if (results.length === 0) {
+            return `No results found for "${query}"`;
+          }
+          // Add search result URLs to allowlist for fetch_page
+          for (const r of results) {
+            this.allowedUrls.add(r.url);
+          }
+          return results
+            .map(
+              (r) =>
+                `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
+            )
+            .join("\n\n");
+        } catch (error) {
+          return `Search error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+
+      case "news_search": {
+        const apiKey = this.env.BRAVE_SEARCH_API_KEY;
+        if (!apiKey) {
+          return "Error: BRAVE_SEARCH_API_KEY not configured";
+        }
+        const query = args.query as string;
+        const count = Math.min((args.count as number) ?? 5, 10);
+        try {
+          const results = await searchNews(query, apiKey, { count });
+          if (results.length === 0) {
+            return `No news found for "${query}"`;
+          }
+          // Add search result URLs to allowlist for fetch_page
+          for (const r of results) {
+            this.allowedUrls.add(r.url);
+          }
+          return results
+            .map(
+              (r) =>
+                `**${r.title}**\n${r.url}\n${r.description}${r.age ? ` (${r.age})` : ""}`,
+            )
+            .join("\n\n");
+        } catch (error) {
+          return `News search error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+
+      case "fetch_page": {
+        const url = args.url as string;
+
+        // Security: Only allow URLs from search results or user input
+        // This check MUST happen before anything else
+        if (!this.allowedUrls.has(url)) {
+          return `BLOCKED: URL "${url}" not in allowlist. Allowed URLs: [${[...this.allowedUrls].join(", ")}]`;
+        }
+
+        const apiToken = this.env.CF_API_TOKEN;
+        const accountId = this.env.CF_ACCOUNT_ID;
+        if (!apiToken || !accountId) {
+          return "Error: CF_API_TOKEN or CF_ACCOUNT_ID not configured";
+        }
+
+        const waitForJs = args.wait_for_js as boolean;
+        console.log(
+          `[FETCH] Fetching ${url} with account ${accountId}, token ${apiToken.slice(0, 4)}...`,
+        );
+        try {
+          const markdown = await fetchPageAsMarkdown(url, accountId, apiToken, {
+            waitUntil: waitForJs ? "networkidle0" : undefined,
+          });
+          console.log(`[FETCH] Success, got ${markdown.length} chars`);
+          if (!markdown) {
+            return `No content found at ${url}`;
+          }
+          // Truncate if too long (keep first 8000 chars to fit in context)
+          if (markdown.length > 8000) {
+            return markdown.slice(0, 8000) + "\n\n[Content truncated...]";
+          }
+          return markdown;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[FETCH] Error: ${errMsg}`);
+          return `Fetch error: ${errMsg}`;
+        }
+      }
+
       default:
         return `Unknown tool: ${name}`;
     }
@@ -378,21 +559,57 @@ export class Outie extends DurableObject<Env> {
 
   // Build system prompt with memory blocks
   private buildSystemPrompt(): string {
+    const now = new Date();
     return `You are Outie, a stateful AI assistant with persistent memory.
+
+Current date/time: ${now.toISOString()} (${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })})
 
 ${renderMemoryBlocks(this.state.memoryBlocks)}
 
-You have access to tools for managing your memory and scheduling. Use them proactively:
-- Update memory blocks when you learn something important
-- Write to journal for observations and decisions
-- Schedule reminders for future tasks
+## Tools
 
-Be direct and helpful. Your memory persists across conversations.`;
+You MUST use tools to persist information. Your text responses are ephemeral but tool calls persist.
+
+When the user tells you something to remember:
+- Use memory_insert with block="human" to store information about the user
+- Use memory_insert with block="scratchpad" for working notes
+- Use memory_replace to update existing information
+
+When you want to record observations:
+- Use journal_write with a topic and content
+
+For scheduling reminders:
+- Use schedule_once with an ISO 8601 datetime for one-time reminders
+- Use cancel_reminder with the reminder ID to cancel
+- Always use the CURRENT year (${now.getFullYear()}) when scheduling
+
+For web search:
+- Use web_search to find current information, research topics, or answer questions about recent events
+- Use news_search specifically for breaking news or recent developments
+
+For fetching web pages:
+- Use fetch_page to read the full content of a webpage (articles, documentation, blog posts)
+- Set wait_for_js=true for JavaScript-heavy pages or SPAs
+- IMPORTANT: You can ONLY fetch URLs that came from search results or were provided by the user. Do not fabricate URLs.
+
+IMPORTANT: If someone asks you to remember something, you MUST call a memory tool. Do not just acknowledge it in text.
+
+Be direct and helpful.`;
   }
 
-  // Main chat endpoint using Workers AI
+  // Main chat endpoint using Workers AI with tool execution loop
   async chat(userMessage: string): Promise<string> {
     await this.init();
+
+    // Extract URLs from user message and add to allowlist
+    const userUrls = this.extractUrls(userMessage);
+    for (const url of userUrls) {
+      this.allowedUrls.add(url);
+      console.log(`[URL ALLOWLIST] Added from user message: ${url}`);
+    }
+    console.log(
+      `[URL ALLOWLIST] Current size: ${this.allowedUrls.size}, URLs: ${[...this.allowedUrls].join(", ")}`,
+    );
 
     // Save user message
     const userMsg: Message = {
@@ -404,53 +621,206 @@ Be direct and helpful. Your memory persists across conversations.`;
     this.saveMessage(userMsg);
     this.state.conversationHistory.push(userMsg);
 
-    // Build messages for Workers AI
-    const messages: Array<{
-      role: "system" | "user" | "assistant";
-      content: string;
-    }> = [
-      { role: "system", content: this.buildSystemPrompt() },
-      ...this.state.conversationHistory.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    ];
+    // Tool execution loop - max 5 iterations to prevent infinite loops
+    const MAX_TOOL_ITERATIONS = 5;
+    const MAX_CONTEXT_MESSAGES = 20; // Limit context to avoid overwhelming the model
+    let finalResponse = "";
 
-    // Call Workers AI
-    // Using llama 3.3 70B - good balance of capability and speed
-    const response = await this.env.AI.run(
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      {
-        messages,
-        max_tokens: 2048,
-      },
-    );
+    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      // Build messages for Workers AI (OpenAI format)
+      type OpenAIMessage = {
+        role: "system" | "user" | "assistant" | "tool";
+        content: string | null;
+        tool_call_id?: string;
+        name?: string;
+        tool_calls?: Array<{
+          id: string;
+          type: "function";
+          function: { name: string; arguments: string };
+        }>;
+      };
 
-    // Workers AI returns response as string or object with response field
-    let assistantContent: string;
-    if (typeof response === "string") {
-      assistantContent = response;
-    } else if (
-      response &&
-      typeof response === "object" &&
-      "response" in response
-    ) {
-      assistantContent = String(response.response);
-    } else {
-      assistantContent = "Error: Unexpected response format";
+      // Filter and limit conversation history for context
+      // Only filter OLD errors - keep recent ones so model can respond appropriately
+      const historyLength = this.state.conversationHistory.length;
+      const filteredHistory = this.state.conversationHistory
+        .filter((m, idx) => {
+          // Keep all non-tool messages
+          if (m.role !== "tool") return true;
+          // Keep recent messages (last 10) even if errors - model needs to see them
+          if (idx >= historyLength - 10) return true;
+          // Filter out old tool errors - they poison the context
+          if (m.content.startsWith("Error:")) return false;
+          return true;
+        })
+        .slice(-MAX_CONTEXT_MESSAGES);
+
+      const messages: OpenAIMessage[] = [
+        { role: "system", content: this.buildSystemPrompt() },
+        ...filteredHistory.map((m) => {
+          const msg: OpenAIMessage = {
+            role: m.role,
+            content: m.content || "", // Workers AI requires string, not null
+          };
+          if (m.tool_calls) {
+            msg.tool_calls = m.tool_calls;
+          }
+          if (m.tool_call_id) {
+            msg.tool_call_id = m.tool_call_id;
+          }
+          if (m.name) {
+            msg.name = m.name;
+          }
+          return msg;
+        }),
+      ];
+
+      // Call Workers AI with function calling
+      // Using Kimi K2 - 1T parameter model with OpenAI-compatible format
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawResponse = await (this.env.AI.run as any)(
+        "@cf/moonshotai/kimi-k2-instruct",
+        {
+          messages,
+          tools: [
+            ...MEMORY_TOOLS,
+            ...SCHEDULING_TOOLS,
+            ...WEB_SEARCH_TOOLS,
+            ...WEB_FETCH_TOOLS,
+          ].map((t) => ({
+            type: "function" as const,
+            function: {
+              name: t.name,
+              description: t.description,
+              parameters: t.parameters,
+            },
+          })),
+          max_tokens: 4096,
+        },
+      );
+
+      // Debug: log the full response
+      console.log("AI Response:", JSON.stringify(rawResponse, null, 2));
+
+      // Normalize response - handle both Workers AI native and OpenAI formats
+      let textContent: string | null = null;
+      let toolCalls: Array<{
+        id: string;
+        name: string;
+        arguments: Record<string, unknown> | string;
+      }> = [];
+
+      // OpenAI format (Kimi K2)
+      if (
+        rawResponse &&
+        typeof rawResponse === "object" &&
+        "choices" in rawResponse
+      ) {
+        const choices = (
+          rawResponse as {
+            choices: Array<{
+              message: {
+                content: string | null;
+                tool_calls?: Array<{
+                  id: string;
+                  function: { name: string; arguments: string };
+                }>;
+              };
+            }>;
+          }
+        ).choices;
+        if (choices && choices[0]) {
+          textContent = choices[0].message.content;
+          if (choices[0].message.tool_calls) {
+            toolCalls = choices[0].message.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            }));
+          }
+        }
+      }
+      // Workers AI native format
+      else if (rawResponse && typeof rawResponse === "object") {
+        const resp = rawResponse as {
+          response?: string;
+          tool_calls?: Array<{
+            id: string;
+            name: string;
+            arguments: Record<string, unknown> | string;
+          }>;
+        };
+        textContent = resp.response ?? null;
+        toolCalls = resp.tool_calls ?? [];
+      }
+      // String response
+      else if (typeof rawResponse === "string") {
+        textContent = rawResponse;
+      }
+
+      // Check if the model wants to call tools
+      if (toolCalls.length > 0) {
+        // First, add the assistant message with tool_calls
+        const assistantWithTools: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content: textContent ?? "",
+          timestamp: Date.now(),
+          tool_calls: toolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments:
+                typeof tc.arguments === "string"
+                  ? tc.arguments
+                  : JSON.stringify(tc.arguments),
+            },
+          })),
+        };
+        this.state.conversationHistory.push(assistantWithTools);
+
+        // Execute each tool call and add results
+        for (const toolCall of toolCalls) {
+          const args =
+            typeof toolCall.arguments === "string"
+              ? JSON.parse(toolCall.arguments)
+              : toolCall.arguments;
+
+          console.log(`Tool call: ${toolCall.name}`, args);
+          const result = await this.handleToolCall(toolCall.name, args);
+          console.log(`Tool result: ${result}`);
+
+          // Add tool result message
+          this.state.conversationHistory.push({
+            id: crypto.randomUUID(),
+            role: "tool" as const,
+            content: result,
+            timestamp: Date.now(),
+            tool_call_id: toolCall.id,
+            name: toolCall.name,
+          });
+        }
+        // Continue loop to get next response
+        continue;
+      }
+
+      // No tool calls - we have the final response
+      finalResponse = textContent ?? "I processed your request.";
+      break;
     }
 
-    // Save assistant message
+    // Save final assistant message
     const assistantMsg: Message = {
       id: crypto.randomUUID(),
       role: "assistant",
-      content: assistantContent,
+      content: finalResponse,
       timestamp: Date.now(),
     };
     this.saveMessage(assistantMsg);
     this.state.conversationHistory.push(assistantMsg);
 
-    return assistantContent;
+    return finalResponse;
   }
 
   // HTTP fetch handler
@@ -460,8 +830,36 @@ Be direct and helpful. Your memory persists across conversations.`;
     if (url.pathname === "/chat" && request.method === "POST") {
       const body = (await request.json()) as { message: string };
       const response = await this.chat(body.message);
-      return new Response(JSON.stringify({ response }), {
-        headers: { "Content-Type": "application/json" },
+      return Response.json({ response });
+    }
+
+    if (url.pathname === "/memory" && request.method === "GET") {
+      await this.init();
+      return Response.json(this.state.memoryBlocks);
+    }
+
+    if (url.pathname === "/reminders" && request.method === "GET") {
+      await this.init();
+      return Response.json(this.state.reminders);
+    }
+
+    if (url.pathname === "/reset" && request.method === "POST") {
+      await this.init();
+      // Clear conversation history from SQLite and memory
+      this.ctx.storage.sql.exec("DELETE FROM messages");
+      this.state.conversationHistory = [];
+      this.allowedUrls.clear();
+      return Response.json({
+        success: true,
+        message: "Conversation history cleared",
+      });
+    }
+
+    if (url.pathname === "/debug" && request.method === "GET") {
+      await this.init();
+      return Response.json({
+        allowedUrls: [...this.allowedUrls],
+        historyLength: this.state.conversationHistory.length,
       });
     }
 
@@ -477,6 +875,23 @@ Be direct and helpful. Your memory persists across conversations.`;
       return new Response(JSON.stringify(this.state.reminders), {
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    if (url.pathname === "/reset" && request.method === "POST") {
+      await this.init();
+      // Clear conversation history from SQLite and memory
+      this.ctx.storage.sql.exec("DELETE FROM messages");
+      this.state.conversationHistory = [];
+      this.allowedUrls.clear();
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Conversation history cleared",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
 
     return new Response("Not Found", { status: 404 });

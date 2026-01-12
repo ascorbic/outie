@@ -3,6 +3,7 @@
   "name": "outie",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-10",
+  "account_id": "14c4011b68b618c5b86f0aa053a834b3",
 
   // Workers AI for chat in the DO
   "ai": {
@@ -45,5 +46,6 @@
 
   "vars": {
     "ENVIRONMENT": "development",
+    "CF_ACCOUNT_ID": "14c4011b68b618c5b86f0aa053a834b3",
   },
 }

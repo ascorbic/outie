@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { html } from "hono/html";
 import type { Env } from "./types";
 
 // Re-export the Durable Object
@@ -10,8 +11,219 @@ const app = new Hono<{ Bindings: Env }>();
 // CORS for local development
 app.use("*", cors());
 
-// Health check
+// Web UI
 app.get("/", (c) => {
+  return c.html(html`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Outie</title>
+        <style>
+          * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+          }
+          body {
+            font-family:
+              system-ui,
+              -apple-system,
+              sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+          }
+          .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+          }
+          h1 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #fff;
+          }
+          .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+          .message {
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+            line-height: 1.5;
+          }
+          .message.user {
+            background: #2563eb;
+            align-self: flex-end;
+          }
+          .message.assistant {
+            background: #262626;
+            align-self: flex-start;
+          }
+          .message pre {
+            background: #171717;
+            padding: 8px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+          }
+          .input-area {
+            display: flex;
+            gap: 12px;
+            padding: 20px 0;
+            border-top: 1px solid #262626;
+          }
+          input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            background: #171717;
+            color: #fff;
+            font-size: 1rem;
+          }
+          input[type="text"]:focus {
+            outline: none;
+            border-color: #2563eb;
+          }
+          button {
+            padding: 12px 24px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+          }
+          button:hover {
+            background: #1d4ed8;
+          }
+          button:disabled {
+            background: #404040;
+            cursor: not-allowed;
+          }
+          .memory {
+            font-size: 0.875rem;
+            color: #a3a3a3;
+            padding: 12px;
+            background: #171717;
+            border-radius: 8px;
+            margin-bottom: 20px;
+          }
+          .memory h3 {
+            color: #fff;
+            margin-bottom: 8px;
+          }
+          .memory-block {
+            margin: 8px 0;
+          }
+          .memory-block-label {
+            color: #60a5fa;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>Outie</h1>
+          <div id="memory" class="memory"></div>
+          <div id="messages" class="messages"></div>
+          <div class="input-area">
+            <input
+              type="text"
+              id="input"
+              placeholder="Type a message..."
+              autofocus
+            />
+            <button id="send">Send</button>
+          </div>
+        </div>
+        <script>
+          const messagesEl = document.getElementById("messages");
+          const inputEl = document.getElementById("input");
+          const sendBtn = document.getElementById("send");
+          const memoryEl = document.getElementById("memory");
+
+          async function loadMemory() {
+            try {
+              const res = await fetch("/memory");
+              const data = await res.json();
+              let html = "<h3>Memory</h3>";
+              for (const [key, block] of Object.entries(data)) {
+                if (block.value) {
+                  html +=
+                    '<div class="memory-block"><span class="memory-block-label">' +
+                    key +
+                    ":</span> " +
+                    block.value.substring(0, 100) +
+                    (block.value.length > 100 ? "..." : "") +
+                    "</div>";
+                }
+              }
+              memoryEl.innerHTML = html;
+            } catch (e) {
+              console.error("Failed to load memory:", e);
+            }
+          }
+
+          function addMessage(role, content) {
+            const div = document.createElement("div");
+            div.className = "message " + role;
+            div.textContent = content;
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+
+          async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message) return;
+
+            inputEl.value = "";
+            sendBtn.disabled = true;
+            addMessage("user", message);
+
+            try {
+              const res = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message }),
+              });
+              const data = await res.json();
+              addMessage("assistant", data.response || "No response");
+              loadMemory();
+            } catch (e) {
+              addMessage("assistant", "Error: " + e.message);
+            } finally {
+              sendBtn.disabled = false;
+              inputEl.focus();
+            }
+          }
+
+          sendBtn.addEventListener("click", sendMessage);
+          inputEl.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendMessage();
+          });
+
+          loadMemory();
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Health check
+app.get("/health", (c) => {
   return c.json({
     name: "outie",
     status: "ok",
@@ -64,6 +276,22 @@ app.get("/reminders", async (c) => {
   const stub = c.env.OUTIE.get(id);
 
   return stub.fetch(new Request("http://internal/reminders"));
+});
+
+// Reset conversation history
+app.post("/reset", async (c) => {
+  const id = c.env.OUTIE.idFromName("default");
+  const stub = c.env.OUTIE.get(id);
+
+  return stub.fetch(new Request("http://internal/reset", { method: "POST" }));
+});
+
+// Debug endpoint
+app.get("/debug", async (c) => {
+  const id = c.env.OUTIE.idFromName("default");
+  const stub = c.env.OUTIE.get(id);
+
+  return stub.fetch(new Request("http://internal/debug"));
 });
 
 export default app;
