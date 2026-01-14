@@ -722,7 +722,10 @@ For coding tasks:
 
 IMPORTANT: If someone asks you to remember something, you MUST call a memory tool.
 
-Be direct and helpful.`;
+## Response style
+- Be direct and concise - this is a chat interface
+- If a task will take more than a few seconds (web search, fetching pages, coding tasks), first send a brief acknowledgement like "Searching..." or "Let me look that up" before proceeding
+- Keep responses short for simple questions, longer only when needed`;
   }
 
   // Main chat endpoint using Vercel AI SDK

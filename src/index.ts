@@ -6,6 +6,7 @@ import { handleOpencodeProxy, runCodingTask } from "./sandbox";
 import {
   verifyWebhook,
   sendMessage,
+  sendTypingIndicator,
   type TelegramUpdate,
 } from "./telegram";
 
@@ -338,6 +339,9 @@ app.post("/telegram", async (c) => {
       // Silent ignore for unauthorized users
       return c.json({ ok: true });
     }
+
+    // Show typing indicator immediately
+    await sendTypingIndicator(c.env, chatId);
 
     // Forward to Outie
     const id = c.env.OUTIE.idFromName("default");

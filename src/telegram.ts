@@ -104,3 +104,27 @@ export function escapeMarkdownV2(text: string): string {
 export function codeBlock(code: string, language?: string): string {
   return `\`\`\`${language ?? ""}\n${code}\n\`\`\``;
 }
+
+// Send typing indicator
+export async function sendTypingIndicator(
+  env: Env,
+  chatId: string | number,
+): Promise<boolean> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${TELEGRAM_API}${env.TELEGRAM_BOT_TOKEN}/sendChatAction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        action: "typing",
+      }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
