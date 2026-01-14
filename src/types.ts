@@ -24,6 +24,8 @@ export interface Reminder {
   cronExpression?: string;
   // For one-shot reminders
   scheduledTime?: number;
+  // Model tier override (default: fast)
+  modelTier?: ModelTier;
 }
 
 // Conversation summary
@@ -54,6 +56,9 @@ export interface Message {
   timestamp: number;
 }
 
+// Model tiers for cost optimization
+export type ModelTier = "fast" | "thinking";
+
 // Environment bindings
 export interface Env {
   OUTIE: DurableObjectNamespace;
@@ -62,11 +67,8 @@ export interface Env {
   // AI Gateway config
   CF_ACCOUNT_ID: string;
   CF_AIG_GATEWAY_ID: string;
-  // API tokens
-  ANTHROPIC_API_KEY: string;
+  // API tokens (provider keys stored in AI Gateway BYOK)
+  CF_API_TOKEN: string; // For AI Gateway auth + Browser Rendering API
   BRAVE_SEARCH_API_KEY: string;
-  CF_API_TOKEN: string; // For Browser Rendering API
-  // For OpenCode in sandbox - AI Gateway auth token
-  CF_AIG_TOKEN?: string;
   ENVIRONMENT: string;
 }

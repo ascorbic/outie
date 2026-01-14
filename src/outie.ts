@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
 import { generateText, stepCountIs } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
 import type {
   Env,
   OutieState,
@@ -9,12 +8,14 @@ import type {
   Reminder,
   Message,
   ConversationSummary,
+  ModelTier,
 } from "./types";
 import { DEFAULT_MEMORY_BLOCKS, renderMemoryBlocks } from "./memory";
 import { getNextCronTime } from "./scheduling";
 import { searchWeb, searchNews } from "./web-search";
 import { fetchPageAsMarkdown } from "./web-fetch";
 import { createTools } from "./tools";
+import { createModelProvider, createSummarizationModel } from "./models";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
@@ -325,11 +326,8 @@ export class Outie extends DurableObject<Env> {
       `[SUMMARIZE] Summarizing ${numToSummarize} messages (keeping ${toKeep.length})`,
     );
 
-    const workersai = createWorkersAI({ binding: this.env.AI });
-
     const { text: summaryText } = await generateText({
-      // @ts-expect-error - model name is valid but not in provider types
-      model: workersai("@cf/meta/llama-3.1-8b-instruct"),
+      model: createSummarizationModel(this.env),
       system: `You are a summarization assistant. Summarize the following conversation concisely, preserving:
 1. Key facts and decisions made
 2. Important context about the user
@@ -602,8 +600,9 @@ Keep the summary under 500 words. Focus on what would be important to know if co
       const results = await searchNews(query, apiKey, {
         count: Math.min(count, 10),
       });
+      console.log(`[NEWS] Got ${results.length} results for "${query}"`);
       if (results.length === 0) {
-        return `No news found for "${query}"`;
+        return `No news articles found for "${query}". Try a more specific topic like "technology" or "AI" instead of generic terms like "headlines". You can also use web_search with a news-related query.`;
       }
 
       // Add URLs to allowlist
@@ -733,8 +732,7 @@ Be direct and helpful.`;
       content: m.content,
     }));
 
-    // Create Workers AI provider and tools
-    const workersai = createWorkersAI({ binding: this.env.AI });
+    // Create model and tools
     const tools = createTools(this);
 
     console.log(
@@ -743,8 +741,7 @@ Be direct and helpful.`;
 
     // Use Vercel AI SDK generateText with automatic tool execution
     const { text, steps } = await generateText({
-      // @ts-expect-error - model name is valid but not in provider types
-      model: workersai("@cf/moonshotai/kimi-k2-instruct"),
+      model: createModelProvider(this.env, "fast"),
       system: this.buildSystemPrompt(),
       messages,
       tools,

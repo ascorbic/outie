@@ -98,10 +98,10 @@ export async function searchNews(
     throw new Error(`Brave Search API error: ${response.status}`);
   }
 
-  const data = (await response.json()) as BraveSearchResponse;
+  const data = (await response.json()) as { results?: BraveSearchResult[] };
 
   return (
-    data.news?.results.map((r) => ({
+    data.results?.map((r) => ({
       title: r.title,
       url: r.url,
       description: r.description,

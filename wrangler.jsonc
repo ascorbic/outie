@@ -41,11 +41,13 @@
   //   "image": "./Dockerfile"
   // },
 
-  // Secrets (set via wrangler secret put):
-  // - CF_AIG_TOKEN: AI Gateway auth token for OpenCode in sandbox
-
   "vars": {
     "ENVIRONMENT": "development",
     "CF_ACCOUNT_ID": "14c4011b68b618c5b86f0aa053a834b3",
+    "CF_AIG_GATEWAY_ID": "outie",
   },
+
+  // Secrets (set via wrangler secret put):
+  // - CF_API_TOKEN: For AI Gateway auth (BYOK) + Browser Rendering API
+  // - BRAVE_SEARCH_API_KEY: For web search
 }
