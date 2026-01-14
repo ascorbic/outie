@@ -3,6 +3,11 @@ import { cors } from "hono/cors";
 import { html } from "hono/html";
 import type { Env } from "./types";
 import { handleOpencodeProxy, runCodingTask } from "./sandbox";
+import {
+  verifyWebhook,
+  sendMessage,
+  type TelegramUpdate,
+} from "./telegram";
 
 // Re-export Durable Objects
 export { Outie } from "./outie";
@@ -294,6 +299,70 @@ app.get("/debug", async (c) => {
   const stub = c.env.OUTIE.get(id);
 
   return stub.fetch(new Request("http://internal/debug"));
+});
+
+// ==========================================
+// Telegram Bot webhook
+// ==========================================
+
+// Allowed Telegram user IDs (add more as needed)
+const ALLOWED_TELEGRAM_USERS = new Set([
+  99498607, // Matt
+]);
+
+app.post("/telegram", async (c) => {
+  // Verify request is from Telegram
+  if (!verifyWebhook(c.req.raw, c.env)) {
+    console.warn("[TELEGRAM] Webhook verification failed");
+    return c.json({ ok: false }, 401);
+  }
+
+  try {
+    const update: TelegramUpdate = await c.req.json();
+
+    // Only process messages
+    if (!update.message?.text) {
+      return c.json({ ok: true });
+    }
+
+    const { message } = update;
+    const userId = message.from.id;
+    const chatId = message.chat.id;
+    const text = message.text;
+
+    console.log(`[TELEGRAM] Message from ${message.from.username ?? userId}: ${text?.slice(0, 50)}`);
+
+    // Access control - check if user is allowed
+    if (!ALLOWED_TELEGRAM_USERS.has(userId)) {
+      console.warn(`[TELEGRAM] Unauthorized user: ${userId}`);
+      // Silent ignore for unauthorized users
+      return c.json({ ok: true });
+    }
+
+    // Forward to Outie
+    const id = c.env.OUTIE.idFromName("default");
+    const stub = c.env.OUTIE.get(id);
+
+    const outieResponse = await stub.fetch(
+      new Request("http://internal/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      }),
+    );
+
+    const data = await outieResponse.json<{ response: string }>();
+
+    // Send response back to Telegram
+    await sendMessage(c.env, chatId, data.response, {
+      replyToMessageId: message.message_id,
+    });
+
+    return c.json({ ok: true });
+  } catch (error) {
+    console.error(`[TELEGRAM] Error processing update: ${error}`);
+    return c.json({ ok: true }); // Always return 200 to Telegram
+  }
 });
 
 // ==========================================

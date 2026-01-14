@@ -16,6 +16,7 @@ import { searchWeb, searchNews } from "./web-search";
 import { fetchPageAsMarkdown } from "./web-fetch";
 import { createTools } from "./tools";
 import { createModelProvider, createSummarizationModel } from "./models";
+import { notifyOwner } from "./telegram";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
@@ -427,8 +428,19 @@ Keep the summary under 500 words. Focus on what would be important to know if co
             `[REMINDER TRIGGERED: ${reminder.description}]\n\n${reminder.payload}\n\nPlease process this reminder and take any appropriate actions. Write a journal entry about what you did.`,
           );
           console.log(`Reminder processed: ${response}`);
+
+          // Send notification via Telegram
+          await notifyOwner(
+            this.env,
+            `🔔 *Reminder*: ${reminder.description}\n\n${response}`,
+          );
         } catch (error) {
           console.error(`Failed to process reminder: ${error}`);
+          // Notify about failure
+          await notifyOwner(
+            this.env,
+            `⚠️ *Reminder failed*: ${reminder.description}\n\nError: ${error}`,
+          );
         }
 
         if (reminder.scheduledTime) {

@@ -65,4 +65,7 @@
   // Secrets (set via wrangler secret put):
   // - CF_API_TOKEN: For AI Gateway auth (BYOK) + Browser Rendering API
   // - BRAVE_SEARCH_API_KEY: For web search
+  // - TELEGRAM_BOT_TOKEN: Bot token from @BotFather
+  // - TELEGRAM_CHAT_ID: Your Telegram user ID (99498607)
+  // - TELEGRAM_WEBHOOK_SECRET: Random secret for webhook verification
 }

@@ -75,5 +75,9 @@ export interface Env {
   // API tokens (provider keys stored in AI Gateway BYOK)
   CF_API_TOKEN: string; // For AI Gateway auth + Browser Rendering API
   BRAVE_SEARCH_API_KEY: string;
+  // Telegram bot integration
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string; // Your personal chat ID
+  TELEGRAM_WEBHOOK_SECRET?: string; // Secret for webhook verification
   ENVIRONMENT: string;
 }
