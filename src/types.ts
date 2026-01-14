@@ -59,9 +59,13 @@ export interface Message {
 // Model tiers for cost optimization
 export type ModelTier = "fast" | "thinking";
 
+// Import Sandbox type for binding
+import type { Sandbox } from "@cloudflare/sandbox";
+
 // Environment bindings
 export interface Env {
   OUTIE: DurableObjectNamespace;
+  SANDBOX: DurableObjectNamespace<Sandbox>;
   REPOS: R2Bucket;
   AI: Ai;
   // AI Gateway config

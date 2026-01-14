@@ -20,9 +20,9 @@ importers:
       '@cloudflare/ai-utils':
         specifier: ^1.0.1
         version: 1.0.1
-      '@cloudflare/sandbox':
-        specifier: ^0.1.0
-        version: 0.1.4
+      '@opencode-ai/sdk':
+        specifier: ^1.1.19
+        version: 1.1.19
       agents:
         specifier: ^0.0.74
         version: 0.0.74(@cloudflare/workers-types@4.20260111.0)(hono@4.11.3)(react@19.2.3)
@@ -39,6 +39,9 @@ importers:
         specifier: ^4.3.5
         version: 4.3.5
     devDependencies:
+      '@cloudflare/sandbox':
+        specifier: ^0.6.11
+        version: 0.6.11(@opencode-ai/sdk@1.1.19)
       '@cloudflare/workers-types':
         specifier: ^4.20250109.0
         version: 4.20260111.0
@@ -120,15 +123,23 @@ packages:
   '@cloudflare/ai-utils@1.0.1':
     resolution: {integrity: sha512-gmn16AvVqtMLcaBYvPkwEWui39E4hlcFPqXuVamKbGleIDO6hVpvAy3KCvbnoPVT7KqRcfdLLpHRIBQDwI9tWQ==}
 
-  '@cloudflare/containers@0.0.25':
-    resolution: {integrity: sha512-41sCUwGPhMMQI/kwksEZXNWe/GZdQoIy8QlgO4NAF68M4y4NN41IXeQ4n2jn4iJ7tHaV4noe7RI75b7T6h2JGg==}
+  '@cloudflare/containers@0.0.30':
+    resolution: {integrity: sha512-i148xBgmyn/pje82ZIyuTr/Ae0BT/YWwa1/GTJcw6DxEjUHAzZLaBCiX446U9OeuJ2rBh/L/9FIzxX5iYNt1AQ==}
 
   '@cloudflare/kv-asset-handler@0.4.1':
     resolution: {integrity: sha512-Nu8ahitGFFJztxUml9oD/DLb7Z28C8cd8F46IVQ7y5Btz575pvMY8AqZsXkX7Gds29eCKdMgIHjIvzskHgPSFg==}
     engines: {node: '>=18.0.0'}
 
-  '@cloudflare/sandbox@0.1.4':
-    resolution: {integrity: sha512-aYPW15/e8UNqO9/oc7GVdSepAyk9UNHh1Rcy0NzbnQ4zSL1r1m2Wgq/vbpkuzwyft3gYZFE5FUPIX7mZdn6j7Q==}
+  '@cloudflare/sandbox@0.6.11':
+    resolution: {integrity: sha512-4hM+jfH5CWJTFBFjnW5bYx8fjVi878VY/cpfdpq4WAj43qq0WMrZW9hEeHYthUHsNZx6tCy6bpaJoLBw2Fyfyw==}
+    peerDependencies:
+      '@openai/agents': ^0.3.3
+      '@opencode-ai/sdk': ^1.0.137
+    peerDependenciesMeta:
+      '@openai/agents':
+        optional: true
+      '@opencode-ai/sdk':
+        optional: true
 
   '@cloudflare/unenv-preset@2.8.0':
     resolution: {integrity: sha512-oIAu6EdQ4zJuPwwKr9odIEqd8AV96z1aqi3RBEA4iKaJ+Vd3fvuI6m5EDC7/QCv+oaPIhy1SkYBYxmD09N+oZg==}
@@ -465,6 +476,9 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@opencode-ai/sdk@1.1.19':
+    resolution: {integrity: sha512-XhZhFuvlLCqDpvNtUEjOsi/wvFj3YCXb1dySp+OONQRMuHlorNYnNa7P2A2ntKuhRdGT1Xt5na0nFzlUyNw+4A==}
 
   '@opentelemetry/api@1.9.0':
     resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
@@ -1167,15 +1181,17 @@ snapshots:
       yaml: 2.8.2
       zod: 3.25.76
 
-  '@cloudflare/containers@0.0.25': {}
+  '@cloudflare/containers@0.0.30': {}
 
   '@cloudflare/kv-asset-handler@0.4.1':
     dependencies:
       mime: 3.0.0
 
-  '@cloudflare/sandbox@0.1.4':
+  '@cloudflare/sandbox@0.6.11(@opencode-ai/sdk@1.1.19)':
     dependencies:
-      '@cloudflare/containers': 0.0.25
+      '@cloudflare/containers': 0.0.30
+    optionalDependencies:
+      '@opencode-ai/sdk': 1.1.19
 
   '@cloudflare/unenv-preset@2.8.0(unenv@2.0.0-rc.24)(workerd@1.20260107.1)':
     dependencies:
@@ -1396,6 +1412,8 @@ snapshots:
     transitivePeerDependencies:
       - hono
       - supports-color
+
+  '@opencode-ai/sdk@1.1.19': {}
 
   '@opentelemetry/api@1.9.0': {}
 

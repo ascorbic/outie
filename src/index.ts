@@ -3,8 +3,9 @@ import { cors } from "hono/cors";
 import { html } from "hono/html";
 import type { Env } from "./types";
 
-// Re-export the Durable Object
+// Re-export Durable Objects
 export { Outie } from "./outie";
+export { Sandbox } from "./sandbox";
 
 const app = new Hono<{ Bindings: Env }>();
 

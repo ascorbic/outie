@@ -17,6 +17,10 @@
         "name": "OUTIE",
         "class_name": "Outie",
       },
+      {
+        "name": "SANDBOX",
+        "class_name": "Sandbox",
+      },
     ],
   },
 
@@ -24,6 +28,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Outie"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["Sandbox"],
     },
   ],
 
@@ -35,11 +43,14 @@
     },
   ],
 
-  // Sandbox for code execution with OpenCode
-  // "containers": {
-  //   "binding": "SANDBOX",
-  //   "image": "./Dockerfile"
-  // },
+  // Sandbox container for code execution with OpenCode
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "basic",
+    },
+  ],
 
   "vars": {
     "ENVIRONMENT": "development",

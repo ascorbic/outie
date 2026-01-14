@@ -14,7 +14,7 @@
     "@ai-sdk/google": "^3.0.7",
     "@ai-sdk/openai": "^3.0.7",
     "@cloudflare/ai-utils": "^1.0.1",
-    "@cloudflare/sandbox": "^0.1.0",
+    "@opencode-ai/sdk": "^1.1.19",
     "agents": "^0.0.74",
     "ai": "^6.0.27",
     "hono": "^4.7.0",
@@ -22,6 +22,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@cloudflare/sandbox": "^0.6.11",
     "@cloudflare/workers-types": "^4.20250109.0",
     "typescript": "^5.7.0",
     "wrangler": "^4.0.0"
