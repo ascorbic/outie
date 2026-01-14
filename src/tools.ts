@@ -180,6 +180,12 @@ export function createTools(agent: Outie) {
       execute: async ({ repo_url, task }) => {
         try {
           const env = agent.getEnv();
+          
+          // Check if sandbox is available
+          if (!env.SANDBOX) {
+            return "Error: Sandbox containers not yet deployed. The run_coding_task tool is not available.";
+          }
+          
           const result = await runCodingTask(env.SANDBOX, env, {
             repoUrl: repo_url,
             task,

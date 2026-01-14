@@ -3,6 +3,7 @@
   "name": "outie",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-10",
+  "compatibility_flags": ["nodejs_compat"],
   "account_id": "14c4011b68b618c5b86f0aa053a834b3",
 
   // Workers AI for chat in the DO
@@ -17,10 +18,11 @@
         "name": "OUTIE",
         "class_name": "Outie",
       },
-      {
-        "name": "SANDBOX",
-        "class_name": "Sandbox",
-      },
+      // Uncomment when Docker/containers are available
+      // {
+      //   "name": "SANDBOX",
+      //   "class_name": "Sandbox",
+      // },
     ],
   },
 
@@ -29,10 +31,11 @@
       "tag": "v1",
       "new_sqlite_classes": ["Outie"],
     },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["Sandbox"],
-    },
+    // Uncomment when Docker/containers are available
+    // {
+    //   "tag": "v2",
+    //   "new_sqlite_classes": ["Sandbox"],
+    // },
   ],
 
   // R2 bucket for repo persistence
@@ -44,13 +47,14 @@
   ],
 
   // Sandbox container for code execution with OpenCode
-  "containers": [
-    {
-      "class_name": "Sandbox",
-      "image": "./Dockerfile",
-      "instance_type": "basic",
-    },
-  ],
+  // Uncomment when Docker is available for local dev / deployment
+  // "containers": [
+  //   {
+  //     "class_name": "Sandbox",
+  //     "image": "./Dockerfile",
+  //     "instance_type": "basic",
+  //   },
+  // ],
 
   "vars": {
     "ENVIRONMENT": "development",

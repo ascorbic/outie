@@ -65,7 +65,8 @@ import type { Sandbox } from "@cloudflare/sandbox";
 // Environment bindings
 export interface Env {
   OUTIE: DurableObjectNamespace;
-  SANDBOX: DurableObjectNamespace<Sandbox>;
+  // Sandbox binding - optional until containers are deployed
+  SANDBOX?: DurableObjectNamespace<Sandbox>;
   REPOS: R2Bucket;
   AI: Ai;
   // AI Gateway config

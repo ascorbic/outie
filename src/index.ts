@@ -302,6 +302,11 @@ app.get("/debug", async (c) => {
 
 // Run a coding task programmatically
 app.post("/code", async (c) => {
+  // Check if sandbox is available
+  if (!c.env.SANDBOX) {
+    return c.json({ error: "Sandbox containers not yet deployed" }, 503);
+  }
+
   const body = await c.req.json<{
     repo_url: string;
     task: string;
@@ -327,6 +332,11 @@ app.post("/code", async (c) => {
 // Proxy to OpenCode web UI
 // Browse to /opencode/ for interactive coding
 app.all("/opencode/*", async (c) => {
+  // Check if sandbox is available
+  if (!c.env.SANDBOX) {
+    return c.text("Sandbox containers not yet deployed", 503);
+  }
+
   // Strip /opencode prefix for the proxy
   const url = new URL(c.req.url);
   const path = url.pathname.replace(/^\/opencode/, "") || "/";
