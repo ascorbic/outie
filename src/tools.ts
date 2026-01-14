@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { Outie } from "./outie";
+import { runCodingTask } from "./sandbox";
 
 // Tool factory that creates tools with access to the agent instance
 export function createTools(agent: Outie) {
@@ -161,6 +162,38 @@ export function createTools(agent: Outie) {
       }),
       execute: async ({ url, wait_for_js }) => {
         return agent.fetchPage(url, wait_for_js);
+      },
+    }),
+
+    // Coding task tool - delegates to OpenCode in a sandbox
+    run_coding_task: tool({
+      description:
+        "Delegate a coding task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, or making changes to a git repository. Returns the AI's explanation and a diff of changes made.",
+      inputSchema: z.object({
+        repo_url: z
+          .string()
+          .describe("Git repository URL to clone (e.g., https://github.com/user/repo)"),
+        task: z
+          .string()
+          .describe("Detailed description of what to implement, fix, or change"),
+      }),
+      execute: async ({ repo_url, task }) => {
+        try {
+          const env = agent.getEnv();
+          const result = await runCodingTask(env.SANDBOX, env, {
+            repoUrl: repo_url,
+            task,
+          });
+
+          if (!result.diff) {
+            return `## Response\n${result.response}\n\n_No changes were made to the repository._`;
+          }
+
+          return `## Response\n${result.response}\n\n## Changes Made\n\`\`\`diff\n${result.diff}\n\`\`\``;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return `Error running coding task: ${message}`;
+        }
       },
     }),
   };

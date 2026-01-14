@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { html } from "hono/html";
 import type { Env } from "./types";
+import { handleOpencodeProxy, runCodingTask } from "./sandbox";
 
 // Re-export Durable Objects
 export { Outie } from "./outie";
@@ -293,6 +294,48 @@ app.get("/debug", async (c) => {
   const stub = c.env.OUTIE.get(id);
 
   return stub.fetch(new Request("http://internal/debug"));
+});
+
+// ==========================================
+// OpenCode Sandbox endpoints
+// ==========================================
+
+// Run a coding task programmatically
+app.post("/code", async (c) => {
+  const body = await c.req.json<{
+    repo_url: string;
+    task: string;
+  }>();
+
+  if (!body.repo_url || !body.task) {
+    return c.json({ error: "repo_url and task are required" }, 400);
+  }
+
+  try {
+    const result = await runCodingTask(c.env.SANDBOX, c.env, {
+      repoUrl: body.repo_url,
+      task: body.task,
+    });
+
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Proxy to OpenCode web UI
+// Browse to /opencode/ for interactive coding
+app.all("/opencode/*", async (c) => {
+  // Strip /opencode prefix for the proxy
+  const url = new URL(c.req.url);
+  const path = url.pathname.replace(/^\/opencode/, "") || "/";
+  const newUrl = new URL(path + url.search, url.origin);
+  const request = new Request(newUrl.toString(), c.req.raw);
+
+  return handleOpencodeProxy(request, c.env.SANDBOX, c.env, {
+    directory: "/home/user/workspace",
+  });
 });
 
 export default app;

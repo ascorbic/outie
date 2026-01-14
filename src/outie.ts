@@ -32,6 +32,11 @@ export class Outie extends DurableObject<Env> {
     };
   }
 
+  // Expose env for tools that need bindings (e.g., sandbox)
+  getEnv(): Env {
+    return this.env;
+  }
+
   // Extract URLs from text (user messages, search results)
   private extractUrls(text: string): string[] {
     const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
@@ -696,6 +701,12 @@ For web search:
 For fetching web pages:
 - Use fetch_page to read webpage content
 - IMPORTANT: You can ONLY fetch URLs from search results or user messages
+
+For coding tasks:
+- Use run_coding_task to delegate code changes to OpenCode in a sandbox
+- Provide a git repository URL and a clear description of what to implement/fix
+- OpenCode will clone the repo, make changes, and return a diff
+- Use this for implementing features, fixing bugs, or refactoring code
 
 IMPORTANT: If someone asks you to remember something, you MUST call a memory tool.
 
