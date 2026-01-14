@@ -18,7 +18,7 @@
         "name": "OUTIE",
         "class_name": "Outie",
       },
-      // Uncomment when Docker/containers are available
+      // Containers beta - uncomment when you have access
       // {
       //   "name": "SANDBOX",
       //   "class_name": "Sandbox",
@@ -31,11 +31,11 @@
       "tag": "v1",
       "new_sqlite_classes": ["Outie"],
     },
-    // Uncomment when Docker/containers are available
-    // {
-    //   "tag": "v2",
-    //   "new_sqlite_classes": ["Sandbox"],
-    // },
+    {
+      "tag": "v2",
+      // Empty migration to match existing state
+      // Sandbox was attempted but containers beta not available
+    },
   ],
 
   // R2 bucket for repo persistence
@@ -47,7 +47,7 @@
   ],
 
   // Sandbox container for code execution with OpenCode
-  // Uncomment when Docker is available for local dev / deployment
+  // Containers beta - uncomment when you have access
   // "containers": [
   //   {
   //     "class_name": "Sandbox",
