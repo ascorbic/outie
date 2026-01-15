@@ -10,7 +10,7 @@ export const SUMMARIZE_RATIO = 0.7;     // Summarize this portion of messages
 export const MAX_CONTEXT_MESSAGES = 20; // Max messages to send to AI
 
 // Content limits
-export const MAX_PAGE_CONTENT_LENGTH = 8000;  // Truncate fetched pages
+export const MAX_PAGE_CONTENT_LENGTH = 50000;  // Truncate fetched pages (Gemini Flash has huge context)
 export const MAX_SEARCH_RESULTS = 10;
 
 // Coding tasks
