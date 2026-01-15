@@ -29,8 +29,8 @@ function getOpencodeConfig(): Config {
         }
       }
     },
-    // Explicitly load only our global commit-gate plugin, ignoring any repo-local plugins
-    plugin: ["/root/.config/opencode/plugin/commit-gate.ts"],
+    // Disable plugins - OpenCode tries to bun install local paths as packages
+    plugin: [],
     // Auto-allow all operations for autonomous mode
     permission: {
       edit: "allow",
