@@ -32,7 +32,8 @@ function getOpencodeConfig(): Config {
         }
       }
     },
-    // commit-gate plugin is installed globally in container via Dockerfile
+    // Explicitly set plugins to only our commit-gate (override any local config)
+    plugin: [],
     // Auto-allow all operations for autonomous mode
     permission: {
       edit: "allow",
