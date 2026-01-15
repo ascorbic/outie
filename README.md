@@ -1,6 +1,13 @@
 # Outie
 
-A stateful AI agent that runs entirely on Cloudflare Workers. Durable Object + SQLite for memory, Workers AI for chat, container sandbox for code execution.
+A stateful AI agent that runs on Cloudflare Workers. Durable Object + SQLite for memory, Workers AI for chat, Sandbox and OpenCode for code execution.
+
+## Inspiration
+
+- [awesome-agents discord bot](https://github.com/cloudflare/awesome-agents/tree/main/agents/discord-agent) – Similar concept: a Discord bot with Letta-style persistent, self-editing memory blocks.
+- [sandbox-sdk OpenCode example](https://github.com/cloudflare/sandbox-sdk/tree/main/examples/opencode) – Shows how to run OpenCode in a container. Outie wraps this with state management (branch tracking, session continuation) and integrates it as a tool.
+
+It adds to these, scheduled reminders via DO Alarms, web search, and fetch.
 
 ## Architecture
 
@@ -14,8 +21,9 @@ A stateful AI agent that runs entirely on Cloudflare Workers. Durable Object + S
 ┌─────────────────────────────────────────────────────────────────┐
 │  Outie DO (singleton)                                           │
 │  ├── SQLite: memory blocks, journal, messages, reminders        │
-│  ├── Workers AI: llama-3.3-70b for chat                         │
-│  ├── Embeddings: bge-small-en-v1.5 (384 dims)                   │
+│  ├── Chat: Gemini 2.5 Flash via AI Gateway                      │
+│  ├── Thinking: Claude Opus 4 via AI Gateway (for reflections)   │
+│  ├── Embeddings: bge-small-en-v1.5 (Workers AI)                 │
 │  └── DO Alarms: scheduled tasks & reminders                     │
 └─────────────────────────────────────────────────────────────────┘
                               │ RPC
@@ -23,7 +31,7 @@ A stateful AI agent that runs entirely on Cloudflare Workers. Durable Object + S
 ┌─────────────────────────────────────────────────────────────────┐
 │  OutieSandbox DO (container)                                    │
 │  ├── Debian container with Node, git, etc.                      │
-│  ├── OpenCode: AI coding agent                                  │
+│  ├── OpenCode + GLM-4.7 via Z.AI                                │
 │  └── GitHub App auth for push access                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -149,11 +157,6 @@ src/
 └── github.ts         # GitHub App JWT auth
 ```
 
-## Inspiration
-
-- [awesome-agents discord bot](https://github.com/cloudflare/awesome-agents/tree/main/agents/discord-agent) – Similar concept: a Discord bot with persistent memory. Outie adds scheduling, coding tasks, and the Letta-style memory model.
-- [sandbox-sdk OpenCode example](https://github.com/cloudflare/sandbox-sdk/tree/main/examples/opencode) – Shows how to run OpenCode in a container. Outie wraps this with state management (branch tracking, session continuation) and integrates it as a tool.
-
 ## Why "Outie"?
 
-It's the external-facing counterpart to [Innie](https://github.com/ascorbic/innie-memory), which runs locally via MCP. Same memory model, different runtime.
+It's the external-facing counterpart to [Innie](https://github.com/ascorbic/innie), which runs locally via MCP. Same memory model, different runtime.
