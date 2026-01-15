@@ -34,8 +34,16 @@ ${conversationSummary.content}
 
   const sourceSection = messageSource?.source === "telegram"
     ? `
-## Message Source
-This message is from Telegram (chat ${messageSource.chatId}). For acknowledgements before slow operations, use the send_telegram tool to send a quick message like "Searching..." BEFORE calling the slow tool.
+## IMPORTANT: Telegram Message
+This message is from Telegram. The user is waiting on their phone.
+
+**You MUST call send_telegram BEFORE any slow operation:**
+- Before web_search → send_telegram("Searching...")
+- Before fetch_page → send_telegram("Fetching that page...")
+- Before run_coding_task → send_telegram("Starting coding task...")
+- Before news_search → send_telegram("Checking the news...")
+
+Do this FIRST, then call the slow tool. Do NOT skip this step.
 `
     : "";
 
