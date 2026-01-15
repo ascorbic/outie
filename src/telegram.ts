@@ -29,7 +29,7 @@ export async function sendMessage(
   chatId: string | number,
   text: string,
   options?: {
-    parseMode?: "Markdown" | "MarkdownV2" | "HTML";
+    parseMode?: "Markdown" | "MarkdownV2" | "HTML" | null;
     disableNotification?: boolean;
     replyToMessageId?: number;
   },
@@ -39,18 +39,39 @@ export async function sendMessage(
     return false;
   }
 
-  try {
-    const response = await fetch(`${TELEGRAM_API}${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const doSend = async (parseMode?: string | null) => {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      disable_notification: options?.disableNotification,
+      reply_to_message_id: options?.replyToMessageId,
+    };
+    if (parseMode) {
+      body.parse_mode = parseMode;
+    }
+    
+    return fetch(`${TELEGRAM_API}${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: options?.parseMode ?? "Markdown",
-        disable_notification: options?.disableNotification,
-        reply_to_message_id: options?.replyToMessageId,
-      }),
+      body: JSON.stringify(body),
     });
+  };
+
+  try {
+    // Try with Markdown first
+    let response = await doSend(options?.parseMode ?? "Markdown");
+
+    // If Markdown parsing fails, retry as plain text
+    if (!response.ok) {
+      const error = await response.text();
+      if (error.includes("can't parse entities")) {
+        console.warn(`[TELEGRAM] Markdown parse failed, retrying as plain text`);
+        response = await doSend(null);
+      } else {
+        console.error(`[TELEGRAM] Failed to send message: ${error}`);
+        return false;
+      }
+    }
 
     if (!response.ok) {
       const error = await response.text();
