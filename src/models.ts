@@ -46,12 +46,16 @@ export function createModelProvider(env: Env, tier: ModelTier = "fast") {
     return google(config.model);
   }
 
-  // Anthropic
+  // Anthropic via AI Gateway BYOK
+  // Per CF docs: omit x-api-key, use Authorization header instead of cf-aig-authorization
   const anthropic = createAnthropic({
-    // BYOK: gateway injects the real key, but SDK requires a value
-    apiKey: "BYOK",
+    // Empty string to satisfy SDK requirement, won't be sent if we override headers
+    apiKey: "",
     baseURL: `${aiGatewayBase(accountId, gatewayId)}/anthropic`,
-    headers,
+    headers: {
+      // AI Gateway expects Authorization header for BYOK
+      "Authorization": `Bearer ${env.CF_API_TOKEN}`,
+    },
   });
   return anthropic(config.model);
 }
