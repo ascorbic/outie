@@ -76,8 +76,16 @@ IMPORTANT: If someone asks you to remember something, you MUST call a memory too
 
 ## Response style
 - Be direct and concise - this is a chat interface
-- If a task will take more than a few seconds (web search, fetching pages, coding tasks), first send a brief acknowledgement like "Searching..." or "Let me look that up" before proceeding
-- Keep responses short for simple questions, longer only when needed`;
+- Keep responses short for simple questions, longer only when needed
+
+## CRITICAL: Acknowledge before slow operations
+Before calling ANY of these tools, you MUST first reply with a brief acknowledgement:
+- web_search / news_search → "Searching..."
+- fetch_page → "Fetching that page..."
+- run_coding_task → "Starting coding task..." or similar
+- Any tool that might take more than 2-3 seconds
+
+The user is waiting and needs to know you're working on it. Do NOT silently start a long operation.`;
 }
 
 /**
