@@ -1,3 +1,13 @@
+/**
+ * Model providers via Cloudflare AI Gateway
+ * 
+ * Uses ai-gateway-provider for native AI Gateway integration with:
+ * - BYOK (stored keys in gateway)
+ * - Automatic fallback support
+ * - Caching, rate limiting, etc.
+ */
+
+import { createAiGateway } from "ai-gateway-provider";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ModelTier } from "./types";
@@ -5,59 +15,87 @@ import type { ModelTier } from "./types";
 // Re-export for convenience
 export type { ModelTier } from "./types";
 
-// AI Gateway base URL
-const aiGatewayBase = (accountId: string, gatewayId: string) =>
-  `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}`;
-
 // Model definitions by tier
 const MODELS = {
-  // Fast tier: Gemini 2.5 Flash - $0.30/$2.50 per 1M tokens
+  // Fast tier: Gemini 2.5 Flash
   fast: {
     provider: "google" as const,
     model: "gemini-2.5-flash",
   },
-  // Thinking tier: Claude Opus 4 - $15/$75 per 1M tokens (use for reflections)
+  // Thinking tier: Claude Opus 4 (for complex reasoning)
   thinking: {
     provider: "anthropic" as const,
     model: "claude-opus-4-20250514",
   },
 } as const;
 
+/**
+ * Create a model provider for the given tier
+ * Uses Cloudflare AI Gateway with BYOK
+ */
 export function createModelProvider(env: Env, tier: ModelTier = "fast") {
-  const { accountId, gatewayId } = {
+  const aigateway = createAiGateway({
     accountId: env.CF_ACCOUNT_ID,
-    gatewayId: env.CF_AIG_GATEWAY_ID,
-  };
-
-  // Auth header for AI Gateway (BYOK handles provider keys)
-  const headers = {
-    "cf-aig-authorization": `Bearer ${env.CF_API_TOKEN}`,
-  };
+    gateway: env.CF_AIG_GATEWAY_ID,
+    apiKey: env.CF_API_TOKEN,
+  });
 
   const config = MODELS[tier];
 
   if (config.provider === "google") {
+    // Google provider - BYOK handles the API key
     const google = createGoogleGenerativeAI({
-      // BYOK: gateway injects the real key, but SDK requires a value
-      apiKey: "BYOK",
-      baseURL: `${aiGatewayBase(accountId, gatewayId)}/google-ai-studio/v1beta`,
-      headers,
+      apiKey: "BYOK", // Gateway injects the real key
     });
-    return google(config.model);
+    return aigateway([google(config.model)]);
   }
 
-  // Anthropic via AI Gateway BYOK
-  // Per CF docs: omit x-api-key, use Authorization header instead of cf-aig-authorization
+  // Anthropic provider - BYOK handles the API key
   const anthropic = createAnthropic({
-    // Empty string to satisfy SDK requirement, won't be sent if we override headers
-    apiKey: "",
-    baseURL: `${aiGatewayBase(accountId, gatewayId)}/anthropic`,
-    headers: {
-      // AI Gateway expects Authorization header for BYOK
-      "Authorization": `Bearer ${env.CF_API_TOKEN}`,
-    },
+    apiKey: "BYOK", // Gateway injects the real key
   });
-  return anthropic(config.model);
+  return aigateway([anthropic(config.model)]);
+}
+
+/**
+ * Create a model with automatic fallback
+ * If primary fails, falls back to secondary
+ */
+export function createModelWithFallback(
+  env: Env,
+  primary: ModelTier,
+  fallback: ModelTier,
+) {
+  const aigateway = createAiGateway({
+    accountId: env.CF_ACCOUNT_ID,
+    gateway: env.CF_AIG_GATEWAY_ID,
+    apiKey: env.CF_API_TOKEN,
+  });
+
+  const primaryConfig = MODELS[primary];
+  const fallbackConfig = MODELS[fallback];
+
+  const models = [];
+
+  // Add primary
+  if (primaryConfig.provider === "google") {
+    const google = createGoogleGenerativeAI({ apiKey: "BYOK" });
+    models.push(google(primaryConfig.model));
+  } else {
+    const anthropic = createAnthropic({ apiKey: "BYOK" });
+    models.push(anthropic(primaryConfig.model));
+  }
+
+  // Add fallback
+  if (fallbackConfig.provider === "google") {
+    const google = createGoogleGenerativeAI({ apiKey: "BYOK" });
+    models.push(google(fallbackConfig.model));
+  } else {
+    const anthropic = createAnthropic({ apiKey: "BYOK" });
+    models.push(anthropic(fallbackConfig.model));
+  }
+
+  return aigateway(models);
 }
 
 // For summarization, use a cheap fast model
