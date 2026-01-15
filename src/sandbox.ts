@@ -101,9 +101,11 @@ export async function runCodingTask(
     console.log(`[SANDBOX] Git configured to use GITHUB_TOKEN`);
   }
 
-  // Clone the repository
-  const repoName = options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
-  const targetDir = `/home/user/${repoName}`;
+  // Clone the repository - use user/repo structure to avoid collisions between forks
+  const urlParts = options.repoUrl.replace(/\.git$/, "").split("/");
+  const repoName = urlParts.pop() ?? "repo";
+  const ownerName = urlParts.pop() ?? "unknown";
+  const targetDir = `/home/user/${ownerName}/${repoName}`;
 
   console.log(`[SANDBOX] About to clone ${options.repoUrl} to ${targetDir}`);
   try {

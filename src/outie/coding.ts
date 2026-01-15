@@ -29,17 +29,26 @@ function formatTimeAgo(ms: number): string {
 }
 
 /**
+ * Generate a short hash suffix for branch uniqueness
+ */
+function shortHash(): string {
+  return crypto.randomUUID().slice(0, 6);
+}
+
+/**
  * Generate a branch name from task description
  */
 async function generateBranchName(env: Env, task: string): Promise<string> {
+  const suffix = shortHash();
+  
   try {
     const { text } = await generateText({
       model: createModelProvider(env, "fast"),
-      prompt: `Generate a git branch name for this task. Use the format "innie/descriptive-slug".
+      prompt: `Generate a git branch name for this task. Use the format "outie/descriptive-slug".
 Rules:
 - Lowercase only
 - Use hyphens between words
-- Max 50 characters total
+- Max 40 characters (a hash suffix will be added)
 - Be descriptive but concise
 
 Task: ${task}
@@ -48,8 +57,8 @@ Reply with ONLY the branch name, nothing else.`,
     });
 
     const branch = text.trim().toLowerCase().replace(/[^a-z0-9\-\/]/g, "-");
-    if (branch.startsWith("innie/") && branch.length <= 50) {
-      return branch;
+    if (branch.startsWith("outie/") && branch.length <= 40) {
+      return `${branch}-${suffix}`;
     }
   } catch (error) {
     log.error("Failed to generate branch name", error);
@@ -59,9 +68,9 @@ Reply with ONLY the branch name, nothing else.`,
   const slug = task
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .slice(0, 30)
+    .slice(0, 25)
     .replace(/-+$/, "");
-  return `innie/${slug}`;
+  return `outie/${slug}-${suffix}`;
 }
 
 /**
@@ -102,9 +111,10 @@ Is the new task a CONTINUATION of the previous work (same feature/bug/topic), or
 
 Reply with ONLY valid JSON, no other text:
 - If continuing: {"action": "continue"}
-- If new work: {"action": "new", "branch": "innie/descriptive-slug"}
+- If new work: {"action": "new", "branch": "outie/descriptive-slug"}
 
-Branch names should be lowercase, use hyphens, and describe the work (e.g., "innie/add-error-handling", "innie/fix-auth-bug").`;
+Branch names should be lowercase, use hyphens, and describe the work (e.g., "outie/add-error-handling", "outie/fix-auth-bug").
+Note: A hash suffix will be added automatically for uniqueness.`;
 
   try {
     const { text } = await generateText({
@@ -116,8 +126,12 @@ Branch names should be lowercase, use hyphens, and describe the work (e.g., "inn
     const jsonMatch = text.match(/\{[^}]+\}/);
     if (jsonMatch) {
       const decision = JSON.parse(jsonMatch[0]) as CodingTaskDecision;
-      if (decision.action === "continue" || (decision.action === "new" && decision.branch)) {
+      if (decision.action === "continue") {
         return decision;
+      }
+      if (decision.action === "new" && decision.branch) {
+        // Add hash suffix for uniqueness
+        return { action: "new", branch: `${decision.branch}-${shortHash()}` };
       }
     }
   } catch (error) {
