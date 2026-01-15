@@ -14,7 +14,7 @@ It adds to these, scheduled reminders via DO Alarms, web search, and fetch.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Worker (Hono)                                                  │
-│  Routes: /chat, /memory, /reminders, /telegram, /code           │
+│  Web chat interface. Telegram bot.                              │
 └─────────────────────────────────────────────────────────────────┘
                               │ RPC
                               ▼
@@ -30,9 +30,9 @@ It adds to these, scheduled reminders via DO Alarms, web search, and fetch.
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  OutieSandbox DO (container)                                    │
-│  ├── Debian container with Node, git, etc.                      │
+│  ├── CF Sandbox container                                       │
 │  ├── OpenCode + GLM-4.7 via Z.AI                                │
-│  └── GitHub App auth for push access                            │
+│  └── GitHub bot                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,6 +47,8 @@ Letta-style architecture where the agent edits its own memory:
 **Conversation** – Rolling context with summarization. When conversation gets long, older messages are summarized and pruned to stay within context limits.
 
 ## Tools
+
+All tools run inside the Outie DO except `run_coding_task`, which delegates to the sandbox.
 
 | Tool | Description |
 |------|-------------|
