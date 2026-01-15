@@ -94,38 +94,37 @@ export async function runCodingTask(
   // Wait for sandbox to be ready
   await waitForSandboxReady(sandbox);
 
+  // Set up GitHub token as env var if provided
+  if (options.githubToken) {
+    console.log(`[SANDBOX] Setting GITHUB_TOKEN env var`);
+    await sandbox.setEnvVars({ GITHUB_TOKEN: options.githubToken });
+    // Configure git to use the token for GitHub HTTPS URLs
+    await sandbox.exec(
+      `git config --global url."https://x-access-token:$GITHUB_TOKEN@github.com/".insteadOf "https://github.com/"`
+    );
+    console.log(`[SANDBOX] Git configured to use GITHUB_TOKEN`);
+  }
+
   // Clone the repository
   const repoName = options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
   const targetDir = `/home/user/${repoName}`;
 
-  // Build clone URL - include token if provided (needed for private repos)
-  let cloneUrl = options.repoUrl;
-  if (options.githubToken) {
-    const repoPath = options.repoUrl.replace("https://github.com/", "").replace(".git", "");
-    cloneUrl = `https://x-access-token:${options.githubToken}@github.com/${repoPath}.git`;
-    console.log(`[SANDBOX] Using authenticated clone URL`);
-  }
-
-  console.log(`[SANDBOX] About to gitCheckout ${options.repoUrl} to ${targetDir}`);
+  console.log(`[SANDBOX] About to clone ${options.repoUrl} to ${targetDir}`);
   try {
     const exists = await sandbox.exists(targetDir)
     if(exists.exists) {
       console.log("[SANDBOX] Repo already exists, fetching latest")
-      // Update remote URL with token if needed, then fetch
-      if (options.githubToken) {
-        const repoPath = options.repoUrl.replace("https://github.com/", "").replace(".git", "");
-        await sandbox.exec(
-          `cd ${targetDir} && git remote set-url origin https://x-access-token:${options.githubToken}@github.com/${repoPath}.git`
-        );
-      }
       await sandbox.exec(`cd ${targetDir} && git fetch origin`);
     } else {
-      // Clone with authenticated URL
-      await sandbox.exec(`git clone --depth 1 ${cloneUrl} ${targetDir}`);
+      // Clone - git config will handle auth via insteadOf
+      const result = await sandbox.exec(`git clone --depth 1 ${options.repoUrl} ${targetDir}`);
+      if (!result.success) {
+        throw new Error(`Clone failed: ${result.stderr || result.stdout}`);
+      }
       console.log(`[SANDBOX] Cloned ${options.repoUrl} to ${targetDir}`);
     }
   } catch (err) {
-    console.error(`[SANDBOX] gitCheckout failed:`, err);
+    console.error(`[SANDBOX] Clone failed:`, err);
     throw err;
   }
 

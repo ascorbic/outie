@@ -869,15 +869,18 @@ Reply with ONLY the branch name, nothing else.`,
     // 3. Get GitHub token for pushing
     let githubToken: string | undefined;
     const credentials = getGitHubAppCredentials(this.env as unknown as Record<string, unknown>);
+    console.log(`[CODING_TASK] GitHub App credentials: ${credentials ? "found" : "not found"}`);
     if (credentials) {
       try {
+        console.log(`[CODING_TASK] Generating installation token for installation ${credentials.installationId}...`);
         githubToken = await getInstallationToken(credentials);
         console.log("[CODING_TASK] Got GitHub App installation token");
       } catch (err) {
         console.error("[CODING_TASK] Failed to get GitHub token:", err);
+        throw new Error(`Failed to get GitHub token: ${err instanceof Error ? err.message : String(err)}`);
       }
     } else {
-      console.warn("[CODING_TASK] No GitHub App credentials configured");
+      console.warn("[CODING_TASK] No GitHub App credentials configured - clone may fail for private repos");
     }
 
     // 4. Run the task in sandbox
