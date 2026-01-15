@@ -9,9 +9,9 @@ RUN curl -fsSLk https://opencode.ai/install -o /tmp/install-opencode.sh \
     && rm /tmp/install-opencode.sh \
     && opencode --version
 
-# Configure git for bot commits
-RUN git config --global user.name "Innie Bot" && \
-    git config --global user.email "innie-bot@users.noreply.github.com" && \
+# Configure git for bot commits (Scout serves both Innie and Outie)
+RUN git config --global user.name "Scout" && \
+    git config --global user.email "ascorbic-scout-agent@users.noreply.github.com" && \
     git config --global init.defaultBranch main
 
 # Copy OpenCode plugins (commit-gate enforces commit+push before session ends)
