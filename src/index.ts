@@ -109,11 +109,27 @@ app.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
 
-    // Show typing indicator immediately
-    await sendTypingIndicator(c.env, chatId);
+    // Keep sending typing indicator every 4 seconds while processing
+    // (Telegram typing indicator expires after 5 seconds)
+    let keepTyping = true;
+    const typingLoop = async () => {
+      while (keepTyping) {
+        await sendTypingIndicator(c.env, chatId);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    };
+    const typingPromise = typingLoop();
 
     // Forward to Outie via RPC
-    const response = await getOutie(c.env).chat(text);
+    let response: string;
+    try {
+      response = await getOutie(c.env).chat(text);
+    } finally {
+      keepTyping = false;
+    }
+
+    // Wait for typing loop to finish (it will exit on next iteration)
+    await typingPromise.catch(() => {});
 
     // Send response back to Telegram
     await sendMessage(c.env, chatId, response, {
