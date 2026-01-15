@@ -17,8 +17,8 @@ RUN git config --global user.name "Scout" && \
 # Copy OpenCode plugins (commit-gate enforces commit+push before session ends)
 COPY container/.opencode /root/.config/opencode
 
-# Install plugin dependencies
-RUN cd /root/.config/opencode/plugin && bun install @opencode-ai/plugin
+# Install plugin dependencies (package.json is in plugin dir)
+RUN cd /root/.config/opencode/plugin && bun install
 
 # Create workspace directory
 WORKDIR /home/user/workspace

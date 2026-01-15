@@ -29,8 +29,8 @@ function getOpencodeConfig(): Config {
         }
       }
     },
-    // Disable plugins - OpenCode tries to bun install local paths as packages
-    plugin: [],
+    // Load commit-gate plugin from global config (deps installed in container)
+    plugin: ["/root/.config/opencode/plugin/commit-gate.ts"],
     // Auto-allow all operations for autonomous mode
     permission: {
       edit: "allow",
