@@ -87,6 +87,9 @@ export const CommitGatePlugin: Plugin = async ({ client, $ }) => {
         issues.push(`**Unpushed commits:**\n\`\`\`\n${unpushed.trim()}\n\`\`\``)
       }
 
+      // Check if on main/master - this is not allowed
+      const isProtectedBranch = branch === "main" || branch === "master"
+
       // Send follow-up prompt to force commit+push
       try {
         await client.session.prompt({
@@ -98,15 +101,21 @@ export const CommitGatePlugin: Plugin = async ({ client, $ }) => {
 
 You have uncommitted or unpushed changes that must be committed and pushed before this session can end.
 
-**Current branch:** \`${branch}\`
+**Current branch:** \`${branch}\`${isProtectedBranch ? ` ⚠️ **WARNING: You are on a protected branch!**` : ""}
 
 ${issues.join("\n\n")}
 
 ### Required actions:
+${isProtectedBranch ? `
+**IMPORTANT:** You must NOT commit directly to \`${branch}\`. First create a feature branch:
+\`\`\`bash
+git checkout -b innie/your-descriptive-branch-name
+\`\`\`
 
+Then:` : ""}
 1. **Stage your changes**: \`git add -A\` (or stage specific files)
 2. **Commit with a descriptive message**: Write a clear commit message explaining what was done and why
-3. **Push to remote**: \`git push\` (or \`git push -u origin ${branch}\` if no upstream)
+3. **Push to remote**: \`git push -u origin ${isProtectedBranch ? "YOUR_NEW_BRANCH" : branch}\`
 4. **Verify success**: Confirm the push completed without errors
 
 Run these git commands now. Do not just describe what to do - actually execute them.`

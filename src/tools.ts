@@ -1,7 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { Outie } from "./outie";
-import { runCodingTask } from "./sandbox";
 
 // Tool factory that creates tools with access to the agent instance
 export function createTools(agent: Outie) {
@@ -182,9 +181,10 @@ export function createTools(agent: Outie) {
     }),
 
     // Coding task tool - delegates to OpenCode in a sandbox
+    // Uses runManagedCodingTask for state management (branch, session continuation)
     run_coding_task: tool({
       description:
-        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given intructions. Returns the AI's explanation and a diff of changes made.`,
+        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given instructions. Returns the AI's explanation and a diff of changes made. Changes are automatically committed and pushed to a feature branch.`,
       inputSchema: z.object({
         repo_url: z
           .string()
@@ -195,20 +195,16 @@ export function createTools(agent: Outie) {
       }),
       execute: async ({ repo_url, task }) => {
         try {
-          const env = agent.getEnv();
-          console.log('running coding task')
-          const result = await runCodingTask(env.SANDBOX, {
-            repoUrl: repo_url,
-            task,
-          });
+          console.log("[TOOL] Running managed coding task");
+          const result = await agent.runManagedCodingTask(repo_url, task);
 
-          console.log(result)
+          console.log("[TOOL] Coding task completed on branch:", result.branch);
 
           if (!result.diff) {
-            return `## Response\n${result.response}\n\n_No changes were made to the repository._`;
+            return `## Response\n${result.response}\n\n**Branch:** \`${result.branch}\`\n\n_No changes were made to the repository._`;
           }
 
-          return `## Response\n${result.response}\n\n## Changes Made\n\`\`\`diff\n${result.diff}\n\`\`\``;
+          return `## Response\n${result.response}\n\n**Branch:** \`${result.branch}\`\n\n## Changes Made\n\`\`\`diff\n${result.diff}\n\`\`\``;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return `Error running coding task: ${message}`;

@@ -20,6 +20,7 @@ import { createTools } from "./tools";
 import { createModelProvider, createSummarizationModel } from "./models";
 import { notifyOwner, sendMessage } from "./telegram";
 import { runCodingTask } from "./sandbox";
+import { getInstallationToken, getGitHubAppCredentials } from "./github";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
@@ -865,17 +866,30 @@ Reply with ONLY the branch name, nothing else.`,
     const decision = await this.decideCodingTaskAction(repoUrl, task, previousState);
     console.log(`[CODING_TASK] Decision: ${decision.action}${decision.branch ? `, branch=${decision.branch}` : ""}`);
 
-    // 3. Run the task in sandbox
+    // 3. Get GitHub token for pushing
+    let githubToken: string | undefined;
+    const credentials = getGitHubAppCredentials(this.env as unknown as Record<string, unknown>);
+    if (credentials) {
+      try {
+        githubToken = await getInstallationToken(credentials);
+        console.log("[CODING_TASK] Got GitHub App installation token");
+      } catch (err) {
+        console.error("[CODING_TASK] Failed to get GitHub token:", err);
+      }
+    } else {
+      console.warn("[CODING_TASK] No GitHub App credentials configured");
+    }
+
+    // 4. Run the task in sandbox
     const result = await runCodingTask(this.env.SANDBOX, {
       repoUrl,
       task,
       previousState: previousState ?? undefined,
       decision,
-      // GITHUB_TOKEN needs to be added to wrangler.jsonc secrets
-      githubToken: (this.env as unknown as Record<string, string>).GITHUB_TOKEN,
+      githubToken,
     });
 
-    // 4. Save updated state
+    // 5. Save updated state
     this.saveCodingTaskState(result.state);
     console.log(`[CODING_TASK] Saved state: branch=${result.state.branch}, session=${result.state.sessionId}`);
 
