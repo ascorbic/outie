@@ -60,6 +60,26 @@ export interface CodingTaskResult {
   state: CodingTaskState;
 }
 
+// Wait for sandbox to be ready by polling
+async function waitForSandboxReady(sandbox: ReturnType<typeof getSandbox>, maxAttempts = 30): Promise<void> {
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Try a simple operation to check if sandbox is ready
+      await sandbox.exec("echo ready");
+      console.log(`[SANDBOX] Ready after ${attempt} attempts`);
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        throw new Error(`Sandbox not ready after ${maxAttempts} attempts: ${err}`);
+      }
+      console.log(`[SANDBOX] Waiting for sandbox to be ready (attempt ${attempt}/${maxAttempts})...`);
+      await sleep(1000);
+    }
+  }
+}
+
 // Run a coding task using OpenCode in a sandbox
 export async function runCodingTask(
   sandboxBinding: DurableObjectNamespace<Sandbox>,
@@ -70,6 +90,9 @@ export async function runCodingTask(
 
   const sandbox = getSandbox(sandboxBinding, 'opencode') 
   console.log(`[SANDBOX] Created sandbox stub`);
+  
+  // Wait for sandbox to be ready
+  await waitForSandboxReady(sandbox);
 
   // Clone the repository
   const repoName = options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
@@ -85,7 +108,6 @@ export async function runCodingTask(
 
   console.log(`[SANDBOX] About to gitCheckout ${options.repoUrl} to ${targetDir}`);
   try {
-    await sleep(2000)
     const exists = await sandbox.exists(targetDir)
     if(exists.exists) {
       console.log("[SANDBOX] Repo already exists, fetching latest")
