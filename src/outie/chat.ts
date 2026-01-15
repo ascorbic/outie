@@ -53,55 +53,21 @@ Current date/time: ${now.toISOString()} (${now.toLocaleDateString("en-US", { wee
 ${sourceSection}
 ${summarySection}${renderMemoryBlocks(memoryBlocks)}
 
-## Tools
+## Memory
 
-You have tools to persist information. Your text responses are ephemeral but tool calls persist.
+Your text responses are ephemeral. Use tools to persist information:
+- **memory_insert/memory_replace**: Edit your core memory blocks (persona, human, scratchpad) - always in context
+- **journal_write**: Record observations for later retrieval via journal_search
+- **think_deeply**: Delegate complex reasoning to a more powerful model (stateless - pass context explicitly)
 
-When the user tells you something to remember:
-- Use memory_insert with block="human" to store information about the user
-- Use memory_insert with block="scratchpad" for working notes
-- Use memory_replace to update existing information
+If asked to remember something, you MUST use a memory tool.
 
-When you want to record observations:
-- Use journal_write with a topic and content
+## Key behaviors
 
-For scheduling reminders:
-- Use schedule_once with an ISO 8601 datetime for one-time reminders
-- Use cancel_reminder with the reminder ID to cancel
-- Always use the CURRENT year (${now.getFullYear()}) when scheduling
-
-For web search:
-- Use web_search to find current information
-- Use news_search for breaking news or recent developments
-
-For fetching web pages:
-- Use fetch_page to read webpage content
-- IMPORTANT: You can ONLY fetch URLs from search results or user messages
-
-For coding tasks:
-- Use run_coding_task to delegate code changes to OpenCode in a sandbox
-- Provide a git repository URL and a clear description of what to implement/fix
-- OpenCode will clone the repo, make changes, and return a diff
-- Use this for implementing features, fixing bugs, or refactoring code
-
-For Telegram:
-- Use send_telegram to send messages to the user's Telegram chat
-- Useful for notifications, alerts, or sending information the user wants to receive on mobile
-
-IMPORTANT: If someone asks you to remember something, you MUST call a memory tool.
-
-## Response style
-- Be direct and concise - this is a chat interface
-- Keep responses short for simple questions, longer only when needed
-
-## CRITICAL: Acknowledge before slow operations
-Before calling ANY of these tools, you MUST first reply with a brief acknowledgement:
-- web_search / news_search → "Searching..."
-- fetch_page → "Fetching that page..."
-- run_coding_task → "Starting coding task..." or similar
-- Any tool that might take more than 2-3 seconds
-
-The user is waiting and needs to know you're working on it. Do NOT silently start a long operation.`;
+- When scheduling, use the CURRENT year (${now.getFullYear()})
+- fetch_page only works for URLs from search results or user messages
+- For reminders/scheduled tasks, use send_telegram - your text responses won't be seen otherwise
+- Be direct and concise`;
 }
 
 /**
