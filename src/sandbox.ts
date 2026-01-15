@@ -235,18 +235,25 @@ export async function runCodingTask(
     console.log(`[SANDBOX] Created new session: ${sessionId}`);
   }
 
-  // Build the prompt - note we now tell it to commit and push
+  // Build the prompt - flexible for both read-only and write tasks
   const prompt = `You are working in the ${repoName} repository on branch \`${targetBranch}\`.
 
 <task>
 ${options.task}
 </task>
 
-Please implement the necessary changes. When you are done:
-1. Stage and commit your changes with a clear, descriptive commit message
-2. Push to the remote branch
+Complete the task above. 
 
-The commit-gate plugin will prevent this session from ending until changes are committed and pushed.`;
+If the task involves making changes to code:
+1. Implement the changes
+2. Stage and commit with a clear, descriptive commit message
+3. Push to the remote branch
+
+If the task is read-only (exploring, explaining, reviewing code):
+- Just provide the information requested
+- No need to commit anything
+
+Always include a clear summary of what you found or did in your response.`;
 
   console.log(`[SANDBOX] Sending prompt to session ${sessionId}`);
 

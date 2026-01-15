@@ -201,14 +201,14 @@ export function createTools(agent: ToolContext) {
     // Uses runManagedCodingTask for state management (branch, session continuation)
     run_coding_task: tool({
       description:
-        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given instructions. Changes are automatically committed and pushed to a feature branch.`,
+        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, reading/exploring code, or answering questions about a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo. For changes, it commits and pushes to a feature branch. For read-only tasks, it just returns the information.`,
       inputSchema: z.object({
         repo_url: z
           .string()
           .describe("Git repository URL to clone (e.g., https://github.com/user/repo)"),
         task: z
           .string()
-          .describe("Detailed description of what to implement, fix, or change"),
+          .describe("What to do: implement a feature, fix a bug, explore code, read files, answer questions about the codebase, etc."),
       }),
       execute: async ({ repo_url, task }) => {
         try {
