@@ -149,6 +149,11 @@ src/
 └── github.ts         # GitHub App JWT auth
 ```
 
+## Inspiration
+
+- [awesome-agents discord bot](https://github.com/cloudflare/awesome-agents/tree/main/agents/discord-agent) – Similar concept: a Discord bot with persistent memory. Outie adds scheduling, coding tasks, and the Letta-style memory model.
+- [sandbox-sdk OpenCode example](https://github.com/cloudflare/sandbox-sdk/tree/main/examples/opencode) – Shows how to run OpenCode in a container. Outie wraps this with state management (branch tracking, session continuation) and integrates it as a tool.
+
 ## Why "Outie"?
 
 It's the external-facing counterpart to [Innie](https://github.com/ascorbic/innie-memory), which runs locally via MCP. Same memory model, different runtime.
