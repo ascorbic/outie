@@ -8,8 +8,8 @@
  * Documents/passages do NOT need the instruction.
  */
 
-import type { JournalEntry } from "../types";
-import { searchJournalEntries as getJournalEntries } from "./state";
+import type { JournalEntry, Topic, RetrievedContext } from "../types";
+import { searchJournalEntries as getJournalEntries, getTopicsWithEmbeddings } from "./state";
 
 // BGE retrieval instruction prefix for queries
 const QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: ";
@@ -113,4 +113,50 @@ export async function searchJournal(
   // Sort by score descending and take top results
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);
+}
+
+/**
+ * Semantic search over topics
+ */
+export async function searchTopics(
+  ai: Ai,
+  sql: DurableObjectStorage["sql"],
+  query: string,
+  limit: number = 3,
+): Promise<Array<{ topic: Topic; score: number }>> {
+  const queryEmbedding = await getQueryEmbedding(ai, query);
+  const topics = getTopicsWithEmbeddings(sql);
+
+  const scored: Array<{ topic: Topic; score: number }> = [];
+  
+  for (const { topic, embedding } of topics) {
+    const embeddingVec: number[] = JSON.parse(embedding);
+    const score = dotProduct(queryEmbedding, embeddingVec);
+    
+    // Skip low-relevance
+    if (score <= 0.35) continue;
+    
+    scored.push({ topic, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
+}
+
+/**
+ * Pre-flight retrieval: search both topics and journal for relevant context
+ * Called before the main chat loop to inject relevant memory automatically
+ */
+export async function retrieveContext(
+  ai: Ai,
+  sql: DurableObjectStorage["sql"],
+  userMessage: string,
+): Promise<RetrievedContext> {
+  // Run searches in parallel
+  const [topics, journal] = await Promise.all([
+    searchTopics(ai, sql, userMessage, 3),
+    searchJournal(ai, sql, userMessage, 3),
+  ]);
+
+  return { topics, journal };
 }

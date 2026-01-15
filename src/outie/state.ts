@@ -10,6 +10,7 @@ import type {
   Message,
   ConversationSummary,
   CodingTaskState,
+  Topic,
 } from "../types";
 import { DEFAULT_MEMORY_BLOCKS } from "../memory";
 import { createLogger } from "./logger";
@@ -67,6 +68,15 @@ export function initSchema(sql: DurableObjectStorage["sql"]): void {
       session_id TEXT NOT NULL,
       last_task TEXT NOT NULL,
       last_timestamp INTEGER NOT NULL
+    );
+    
+    CREATE TABLE IF NOT EXISTS topics (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      content TEXT NOT NULL,
+      embedding TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
   `);
 }
@@ -301,4 +311,100 @@ export function saveCodingTaskState(
     state.lastTask,
     state.lastTimestamp,
   );
+}
+
+// ==========================================
+// Topics
+// ==========================================
+
+export function saveTopic(
+  sql: DurableObjectStorage["sql"],
+  topic: Topic,
+  embedding: number[],
+): void {
+  sql.exec(
+    `INSERT OR REPLACE INTO topics (id, name, content, embedding, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    topic.id,
+    topic.name,
+    topic.content,
+    JSON.stringify(embedding),
+    topic.createdAt,
+    topic.updatedAt,
+  );
+}
+
+export function getTopic(
+  sql: DurableObjectStorage["sql"],
+  name: string,
+): Topic | null {
+  const rows = sql
+    .exec<{
+      id: string;
+      name: string;
+      content: string;
+      created_at: number;
+      updated_at: number;
+    }>("SELECT id, name, content, created_at, updated_at FROM topics WHERE name = ?", name)
+    .toArray();
+
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    name: row.name,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function listTopics(
+  sql: DurableObjectStorage["sql"],
+): Topic[] {
+  return sql
+    .exec<{
+      id: string;
+      name: string;
+      content: string;
+      created_at: number;
+      updated_at: number;
+    }>("SELECT id, name, content, created_at, updated_at FROM topics ORDER BY updated_at DESC")
+    .toArray()
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      content: row.content,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+}
+
+export function deleteTopic(sql: DurableObjectStorage["sql"], name: string): void {
+  sql.exec("DELETE FROM topics WHERE name = ?", name);
+}
+
+export function getTopicsWithEmbeddings(
+  sql: DurableObjectStorage["sql"],
+): Array<{ topic: Topic; embedding: string }> {
+  return sql
+    .exec<{
+      id: string;
+      name: string;
+      content: string;
+      embedding: string;
+      created_at: number;
+      updated_at: number;
+    }>("SELECT * FROM topics WHERE embedding IS NOT NULL")
+    .toArray()
+    .map((row) => ({
+      topic: {
+        id: row.id,
+        name: row.name,
+        content: row.content,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+      embedding: row.embedding,
+    }));
 }

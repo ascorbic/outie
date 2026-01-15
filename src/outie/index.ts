@@ -9,6 +9,7 @@ import type {
   JournalEntry,
   Reminder,
   Message,
+  Topic,
 } from "../types";
 import { DEFAULT_MEMORY_BLOCKS } from "../memory";
 import { getNextCronTime } from "../scheduling";
@@ -28,8 +29,11 @@ import {
   deleteReminder as deleteReminderFromDb,
   saveMessage,
   clearConversation,
+  saveTopic,
+  getTopic,
+  listTopics,
 } from "./state";
-import { getEmbedding, searchJournal } from "./embeddings";
+import { getEmbedding, searchJournal, retrieveContext } from "./embeddings";
 import { extractUrls, runChat, type MessageSource } from "./chat";
 import { summarizeIfNeeded } from "./summarization";
 import { runManagedCodingTask } from "./coding";
@@ -218,6 +222,48 @@ export class Outie extends DurableObject<Env> {
           `[${new Date(r.entry.timestamp).toISOString()}] ${r.entry.topic} (${(r.score * 100).toFixed(0)}% match): ${r.entry.content}`,
       )
       .join("\n\n");
+  }
+
+  // ==========================================
+  // Topics - distilled knowledge
+  // ==========================================
+
+  async topicWrite(name: string, content: string): Promise<string> {
+    const existing = getTopic(this.ctx.storage.sql, name);
+    const now = Date.now();
+    
+    const topic: Topic = {
+      id: existing?.id ?? crypto.randomUUID(),
+      name,
+      content,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    
+    const embedding = await getEmbedding(this.env.AI, `${name}: ${content}`);
+    saveTopic(this.ctx.storage.sql, topic, embedding);
+    
+    return existing 
+      ? `Updated topic "${name}"`
+      : `Created topic "${name}"`;
+  }
+
+  topicGet(name: string): string {
+    const topic = getTopic(this.ctx.storage.sql, name);
+    if (!topic) {
+      return `Topic "${name}" not found`;
+    }
+    return `# ${topic.name}\n\n${topic.content}`;
+  }
+
+  topicList(): string {
+    const topics = listTopics(this.ctx.storage.sql);
+    if (topics.length === 0) {
+      return "No topics yet";
+    }
+    return topics
+      .map((t) => `- ${t.name} (updated ${new Date(t.updatedAt).toLocaleDateString()})`)
+      .join("\n");
   }
 
   async scheduleReminder(
@@ -445,6 +491,10 @@ export class Outie extends DurableObject<Env> {
       this.allowedUrls.add(url);
     }
 
+    // Pre-flight retrieval: search for relevant context before chat
+    const retrieved = await retrieveContext(this.env.AI, this.ctx.storage.sql, userMessage);
+    log.info(`Retrieved ${retrieved.topics.length} topics, ${retrieved.journal.length} journal entries`);
+
     // Save user message
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -463,6 +513,7 @@ export class Outie extends DurableObject<Env> {
       conversationSummary: this.state.conversationSummary,
       toolContext: this,
       messageSource: source,
+      retrievedContext: retrieved,
     });
 
     // Save assistant message

@@ -74,4 +74,19 @@ export interface CodingTaskDecision {
   branch?: string;          // Required if action is "new"
 }
 
+// Topic - distilled knowledge about a concept/tool/pattern
+export interface Topic {
+  id: string;
+  name: string;             // Human-readable name, e.g., "Next.js on Cloudflare"
+  content: string;          // The knowledge itself
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Retrieved context for pre-flight injection
+export interface RetrievedContext {
+  topics: Array<{ topic: Topic; score: number }>;
+  journal: Array<{ entry: JournalEntry; score: number }>;
+}
+
 

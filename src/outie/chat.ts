@@ -3,7 +3,7 @@
  */
 
 import { generateText, stepCountIs } from "ai";
-import type { Message, MemoryBlock, ConversationSummary } from "../types";
+import type { Message, MemoryBlock, ConversationSummary, RetrievedContext } from "../types";
 import { renderMemoryBlocks } from "../memory";
 import { createModelProvider } from "../models";
 import { createTools, type ToolContext } from "../tools";
@@ -13,12 +13,44 @@ import { MAX_CONTEXT_MESSAGES, MAX_TOOL_STEPS } from "./config";
 const log = createLogger("CHAT");
 
 /**
+ * Render retrieved context (topics and journal entries) into a prompt section
+ */
+function renderRetrievedContext(retrieved?: RetrievedContext): string {
+  if (!retrieved) return "";
+  
+  const hasTopics = retrieved.topics.length > 0;
+  const hasJournal = retrieved.journal.length > 0;
+  
+  if (!hasTopics && !hasJournal) return "";
+  
+  let section = "\n## Retrieved Context\n\nRelevant information from memory:\n\n";
+  
+  if (hasTopics) {
+    section += "### Topics\n";
+    for (const { topic, score } of retrieved.topics) {
+      section += `**${topic.name}** (${(score * 100).toFixed(0)}% match)\n${topic.content}\n\n`;
+    }
+  }
+  
+  if (hasJournal) {
+    section += "### Journal Entries\n";
+    for (const { entry, score } of retrieved.journal) {
+      const date = new Date(entry.timestamp).toLocaleDateString();
+      section += `[${date}] **${entry.topic}** (${(score * 100).toFixed(0)}% match): ${entry.content}\n\n`;
+    }
+  }
+  
+  return section;
+}
+
+/**
  * Build system prompt with memory blocks and context
  */
 export function buildSystemPrompt(
   memoryBlocks: Record<string, MemoryBlock>,
   conversationSummary?: ConversationSummary,
   messageSource?: MessageSource,
+  retrievedContext?: RetrievedContext,
 ): string {
   const now = new Date();
   const summarySection = conversationSummary
@@ -47,11 +79,14 @@ Do this FIRST, then call the slow tool. Do NOT skip this step.
 `
     : "";
 
+  const retrievedSection = renderRetrievedContext(retrievedContext);
+
   return `You are Outie, a stateful AI assistant with persistent memory.
 
 Current date/time: ${now.toISOString()} (${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })})
 ${sourceSection}
 ${summarySection}${renderMemoryBlocks(memoryBlocks)}
+${retrievedSection}
 
 ## Memory
 
@@ -90,6 +125,7 @@ export interface ChatContext {
   conversationSummary?: ConversationSummary;
   toolContext: ToolContext;
   messageSource?: MessageSource;
+  retrievedContext?: RetrievedContext;
 }
 
 export interface ChatResult {
@@ -120,7 +156,7 @@ export async function runChat(
     // Use Vercel AI SDK generateText with automatic tool execution
     const { text, steps } = await generateText({
       model: createModelProvider(ctx.env, "fast"),
-      system: buildSystemPrompt(ctx.memoryBlocks, ctx.conversationSummary, ctx.messageSource),
+      system: buildSystemPrompt(ctx.memoryBlocks, ctx.conversationSummary, ctx.messageSource, ctx.retrievedContext),
       messages,
       tools,
       stopWhen: stepCountIs(MAX_TOOL_STEPS),

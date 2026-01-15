@@ -9,6 +9,9 @@ export interface ToolContext {
   memoryReplace(block: string, oldStr: string, newStr: string): string;
   journalWrite(topic: string, content: string): Promise<string>;
   journalSearch(query: string, limit: number): Promise<string>;
+  topicWrite(name: string, content: string): Promise<string>;
+  topicGet(name: string): string;
+  topicList(): string;
   scheduleReminder(id: string, description: string, payload: string, cron: string): Promise<string>;
   scheduleOnce(id: string, description: string, payload: string, datetime: string): Promise<string>;
   cancelReminder(id: string): string;
@@ -85,6 +88,41 @@ export function createTools(agent: ToolContext) {
       }),
       execute: async ({ query, limit }) => {
         return agent.journalSearch(query, limit);
+      },
+    }),
+
+    // Topic tools - distilled knowledge that persists
+    topic_write: tool({
+      description:
+        "Create or update a topic - your distilled understanding of a concept, tool, or pattern. Topics are auto-retrieved when relevant to a conversation.",
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe("Topic name (e.g., 'Next.js on Cloudflare', 'OpenCode plugins')"),
+        content: z
+          .string()
+          .describe("Your distilled knowledge - keep it concise (~20 lines max)"),
+      }),
+      execute: async ({ name, content }) => {
+        return agent.topicWrite(name, content);
+      },
+    }),
+
+    topic_get: tool({
+      description: "Get a topic by name to read its current content.",
+      inputSchema: z.object({
+        name: z.string().describe("Topic name"),
+      }),
+      execute: async ({ name }) => {
+        return agent.topicGet(name);
+      },
+    }),
+
+    topic_list: tool({
+      description: "List all topics you've created.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        return agent.topicList();
       },
     }),
 
@@ -223,7 +261,7 @@ export function createTools(agent: ToolContext) {
 
     think_deeply: tool({
       description:
-        "Think carefully about a complex question or problem. Uses a more powerful model (Claude Opus) for better reasoning. Use this for ambiguous situations, complex planning, or when you need to consider multiple perspectives.",
+        "Think carefully about a complex question or problem. Uses a more powerful model for better reasoning. Use this for ambiguous situations, complex planning, or when you need to consider multiple perspectives. Include as much context as needed, because the agent does not have access to your memory or journal. If it will need reference to items from the memory or journal, include them in the context.",
       inputSchema: z.object({
         question: z.string().describe("The question or problem to think about"),
         context: z
