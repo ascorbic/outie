@@ -30,7 +30,7 @@ import {
   clearConversation,
 } from "./state";
 import { getEmbedding, searchJournal } from "./embeddings";
-import { extractUrls, runChat } from "./chat";
+import { extractUrls, runChat, type MessageSource } from "./chat";
 import { summarizeIfNeeded } from "./summarization";
 import { runManagedCodingTask } from "./coding";
 
@@ -405,7 +405,7 @@ export class Outie extends DurableObject<Env> {
   }
 
   // Main chat endpoint
-  async chat(userMessage: string): Promise<string> {
+  async chat(userMessage: string, source?: MessageSource): Promise<string> {
     await this.init();
 
     // Extract URLs from user message and add to allowlist
@@ -431,6 +431,7 @@ export class Outie extends DurableObject<Env> {
       memoryBlocks: this.state.memoryBlocks,
       conversationSummary: this.state.conversationSummary,
       toolContext: this,
+      messageSource: source,
     });
 
     // Save assistant message

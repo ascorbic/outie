@@ -18,6 +18,7 @@ const log = createLogger("CHAT");
 export function buildSystemPrompt(
   memoryBlocks: Record<string, MemoryBlock>,
   conversationSummary?: ConversationSummary,
+  messageSource?: MessageSource,
 ): string {
   const now = new Date();
   const summarySection = conversationSummary
@@ -31,10 +32,17 @@ ${conversationSummary.content}
 `
     : "";
 
+  const sourceSection = messageSource?.source === "telegram"
+    ? `
+## Message Source
+This message is from Telegram (chat ${messageSource.chatId}). For acknowledgements before slow operations, use the send_telegram tool to send a quick message like "Searching..." BEFORE calling the slow tool.
+`
+    : "";
+
   return `You are Outie, a stateful AI assistant with persistent memory.
 
 Current date/time: ${now.toISOString()} (${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })})
-
+${sourceSection}
 ${summarySection}${renderMemoryBlocks(memoryBlocks)}
 
 ## Tools
@@ -96,12 +104,18 @@ export function extractUrls(text: string): string[] {
   return text.match(urlRegex) || [];
 }
 
+export interface MessageSource {
+  source: "web" | "telegram";
+  chatId?: string;
+}
+
 export interface ChatContext {
   env: Env;
   conversationHistory: Message[];
   memoryBlocks: Record<string, MemoryBlock>;
   conversationSummary?: ConversationSummary;
   toolContext: ToolContext;
+  messageSource?: MessageSource;
 }
 
 export interface ChatResult {
@@ -132,7 +146,7 @@ export async function runChat(
     // Use Vercel AI SDK generateText with automatic tool execution
     const { text, steps } = await generateText({
       model: createModelProvider(ctx.env, "fast"),
-      system: buildSystemPrompt(ctx.memoryBlocks, ctx.conversationSummary),
+      system: buildSystemPrompt(ctx.memoryBlocks, ctx.conversationSummary, ctx.messageSource),
       messages,
       tools,
       stopWhen: stepCountIs(MAX_TOOL_STEPS),
