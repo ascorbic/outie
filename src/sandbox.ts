@@ -75,35 +75,36 @@ export async function runCodingTask(
   const repoName = options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
   const targetDir = `/home/user/${repoName}`;
 
+  // Build clone URL - include token if provided (needed for private repos)
+  let cloneUrl = options.repoUrl;
+  if (options.githubToken) {
+    const repoPath = options.repoUrl.replace("https://github.com/", "").replace(".git", "");
+    cloneUrl = `https://x-access-token:${options.githubToken}@github.com/${repoPath}.git`;
+    console.log(`[SANDBOX] Using authenticated clone URL`);
+  }
+
   console.log(`[SANDBOX] About to gitCheckout ${options.repoUrl} to ${targetDir}`);
   try {
     await sleep(2000)
     const exists = await sandbox.exists(targetDir)
     if(exists.exists) {
-      console.log("[SANDBOX] Repo already exists, pulling latest")
-      // Pull latest from main/master before branching
+      console.log("[SANDBOX] Repo already exists, fetching latest")
+      // Update remote URL with token if needed, then fetch
+      if (options.githubToken) {
+        const repoPath = options.repoUrl.replace("https://github.com/", "").replace(".git", "");
+        await sandbox.exec(
+          `cd ${targetDir} && git remote set-url origin https://x-access-token:${options.githubToken}@github.com/${repoPath}.git`
+        );
+      }
       await sandbox.exec(`cd ${targetDir} && git fetch origin`);
     } else {
-      await sandbox.gitCheckout(options.repoUrl, { targetDir, depth: 1 });
+      // Clone with authenticated URL
+      await sandbox.exec(`git clone --depth 1 ${cloneUrl} ${targetDir}`);
       console.log(`[SANDBOX] Cloned ${options.repoUrl} to ${targetDir}`);
     }
   } catch (err) {
     console.error(`[SANDBOX] gitCheckout failed:`, err);
     throw err;
-  }
-
-  // Configure git credentials if provided
-  if (options.githubToken) {
-    console.log("[SANDBOX] Configuring git credentials");
-    // Configure credential helper for this repo
-    await sandbox.exec(
-      `cd ${targetDir} && git config credential.helper '!f() { echo "password=${options.githubToken}"; }; f'`
-    );
-    // Also set remote URL with token for HTTPS
-    const repoPath = options.repoUrl.replace("https://github.com/", "");
-    await sandbox.exec(
-      `cd ${targetDir} && git remote set-url origin https://x-access-token:${options.githubToken}@github.com/${repoPath}`
-    );
   }
 
   // Handle branch management based on decision
