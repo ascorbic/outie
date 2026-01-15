@@ -7,7 +7,7 @@ A stateful AI agent that runs on Cloudflare Workers. Durable Object + SQLite for
 - [awesome-agents discord bot](https://github.com/cloudflare/awesome-agents/tree/main/agents/discord-agent) – Similar concept: a Discord bot with Letta-style persistent, self-editing memory blocks.
 - [sandbox-sdk OpenCode example](https://github.com/cloudflare/sandbox-sdk/tree/main/examples/opencode) – Shows how to run OpenCode in a container. Outie wraps this with state management (branch tracking, session continuation) and integrates it as a tool.
 
-It adds to these, scheduled reminders via DO Alarms, web search, and fetch.
+It adds to these, scheduled reminders via DO Alarms, web search via Brave, and web fetch via the Browser Rendering API.
 
 ## Architecture
 
@@ -107,6 +107,18 @@ Reminders use DO alarms. Each reminder has either a cron expression or a one-tim
 **HTTP API** – `POST /chat`, `GET /memory`, `GET /reminders`, `POST /reset`, `POST /code`
 
 All routes go through the worker, which calls the DO via RPC (not fetch).
+
+## Security
+
+**Cloudflare Access** – The web UI and API endpoints are protected by Cloudflare Access. Configure an Access policy in the dashboard to restrict who can reach the worker.
+
+**Telegram** – Two layers: webhook requests are verified using a secret token (`TELEGRAM_WEBHOOK_SECRET`), and user IDs are checked against an allowlist. Unauthorized users are silently ignored.
+
+**URL allowlist** – The `fetch_page` tool can only fetch URLs that came from search results or user messages. Prevents the agent from being tricked into fetching arbitrary URLs (SSRF mitigation).
+
+**Security headers** – Standard headers on all responses: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
+
+**GitHub App** – Repo access uses a GitHub App with scoped permissions, not a personal access token. The app is installed only on repos the agent should access.
 
 ## Setup
 
