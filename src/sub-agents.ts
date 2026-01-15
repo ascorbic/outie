@@ -109,18 +109,23 @@ export async function runSubAgent(
   input: SubAgentInput,
 ): Promise<SubAgentResult> {
   const config = SUB_AGENTS[agentId];
+  console.log(`[SUB-AGENT] Running ${agentId} with tier ${config.tier}`);
   
   const prompt = input.context 
     ? `Context:\n${input.context}\n\n---\n\nTask:\n${input.task}`
     : input.task;
 
-  const { text } = await generateText({
-    model: createModelProvider(env, config.tier),
-    system: config.systemPrompt,
-    prompt,
-  });
-
-  return { text, agent: agentId, tier: config.tier };
+  try {
+    const { text } = await generateText({
+      model: createModelProvider(env, config.tier),
+      system: config.systemPrompt,
+      prompt,
+    });
+    return { text, agent: agentId, tier: config.tier };
+  } catch (error) {
+    console.error(`[SUB-AGENT] Error in ${agentId}:`, error);
+    throw error;
+  }
 }
 
 // ============================================

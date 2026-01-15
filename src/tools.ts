@@ -232,8 +232,15 @@ export function createTools(agent: ToolContext) {
           .describe("Optional context or background information"),
       }),
       execute: async ({ question, context }) => {
-        const result = await think(agent.getEnv(), question, context);
-        return `## Deep Analysis\n\n${result}`;
+        try {
+          console.log("[TOOL] think_deeply called with:", question.slice(0, 100));
+          const result = await think(agent.getEnv(), question, context);
+          return `## Deep Analysis\n\n${result}`;
+        } catch (error) {
+          console.error("[TOOL] think_deeply error:", error);
+          const msg = error instanceof Error ? error.message : String(error);
+          return `Error using think_deeply: ${msg}`;
+        }
       },
     }),
 
