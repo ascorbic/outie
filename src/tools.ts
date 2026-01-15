@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { summarize, extract, think } from "./sub-agents";
 
 // Interface for tool context - matches Outie's tool handler methods
 export interface ToolContext {
@@ -16,6 +17,7 @@ export interface ToolContext {
   webSearch(query: string, count: number): Promise<string>;
   newsSearch(query: string, count: number): Promise<string>;
   fetchPage(url: string, waitForJs: boolean): Promise<string>;
+  fetchPageContent(url: string, waitForJs: boolean): Promise<string | null>; // Raw content for sub-agents
   runManagedCodingTask(repoUrl: string, task: string): Promise<{ response: string; branch: string }>;
 }
 
@@ -167,7 +169,7 @@ export function createTools(agent: ToolContext) {
 
     fetch_page: tool({
       description:
-        "Fetch and read a webpage as markdown. Only works for URLs from search results or user messages.",
+        "Fetch and read a webpage as markdown. Only works for URLs from search results or user messages. For long pages, consider using fetch_page_summary instead.",
       inputSchema: z.object({
         url: z.string().url().describe("URL to fetch"),
         wait_for_js: z
@@ -178,6 +180,60 @@ export function createTools(agent: ToolContext) {
       }),
       execute: async ({ url, wait_for_js }) => {
         return agent.fetchPage(url, wait_for_js);
+      },
+    }),
+
+    // Sub-agent tools - these delegate to specialized agents
+    fetch_page_summary: tool({
+      description:
+        "Fetch a webpage and return a concise summary. Use this for long pages when you just need the key points. Only works for URLs from search results or user messages.",
+      inputSchema: z.object({
+        url: z.string().url().describe("URL to fetch and summarize"),
+        wait_for_js: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Wait for JavaScript to execute (for SPAs)"),
+      }),
+      execute: async ({ url, wait_for_js }) => {
+        const content = await agent.fetchPageContent(url, wait_for_js);
+        if (!content) return `Could not fetch ${url}`;
+        return summarize(agent.getEnv(), content, url);
+      },
+    }),
+
+    fetch_page_extract: tool({
+      description:
+        "Fetch a webpage and extract specific information based on a query. Use this when you're looking for something specific on a page. Only works for URLs from search results or user messages.",
+      inputSchema: z.object({
+        url: z.string().url().describe("URL to fetch"),
+        query: z.string().describe("What information to extract from the page"),
+        wait_for_js: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Wait for JavaScript to execute (for SPAs)"),
+      }),
+      execute: async ({ url, query, wait_for_js }) => {
+        const content = await agent.fetchPageContent(url, wait_for_js);
+        if (!content) return `Could not fetch ${url}`;
+        return extract(agent.getEnv(), content, query);
+      },
+    }),
+
+    think_deeply: tool({
+      description:
+        "Think carefully about a complex question or problem. Uses a more powerful model (Claude Opus) for better reasoning. Use this for ambiguous situations, complex planning, or when you need to consider multiple perspectives.",
+      inputSchema: z.object({
+        question: z.string().describe("The question or problem to think about"),
+        context: z
+          .string()
+          .optional()
+          .describe("Optional context or background information"),
+      }),
+      execute: async ({ question, context }) => {
+        const result = await think(agent.getEnv(), question, context);
+        return `## Deep Analysis\n\n${result}`;
       },
     }),
 

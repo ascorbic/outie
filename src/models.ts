@@ -2,6 +2,9 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ModelTier } from "./types";
 
+// Re-export for convenience
+export type { ModelTier } from "./types";
+
 // AI Gateway base URL
 const aiGatewayBase = (accountId: string, gatewayId: string) =>
   `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}`;

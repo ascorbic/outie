@@ -353,16 +353,22 @@ export class Outie extends DurableObject<Env> {
     }
   }
 
-  async fetchPage(url: string, waitForJs: boolean): Promise<string> {
+  /**
+   * Fetch page content (internal helper for sub-agents)
+   * Returns null on error instead of error message
+   */
+  async fetchPageContent(url: string, waitForJs: boolean): Promise<string | null> {
     // Security: Only allow URLs from search results or user input
     if (!this.allowedUrls.has(url)) {
-      return `BLOCKED: URL "${url}" not in allowlist. URLs must come from search results or user messages.`;
+      log.warn(`[FETCH] Blocked URL not in allowlist: ${url}`);
+      return null;
     }
 
     const apiToken = this.env.CF_API_TOKEN;
     const accountId = this.env.CF_ACCOUNT_ID;
     if (!apiToken || !accountId) {
-      return "Error: CF_API_TOKEN or CF_ACCOUNT_ID not configured";
+      log.error("[FETCH] CF_API_TOKEN or CF_ACCOUNT_ID not configured");
+      return null;
     }
 
     try {
@@ -372,24 +378,41 @@ export class Outie extends DurableObject<Env> {
 
       if (!markdown) {
         log.info(`[FETCH] No content from ${url}`);
-        return `No content found at ${url}`;
+        return null;
       }
 
-      // Debug logging
       log.info(`[FETCH] ${url} - length: ${markdown.length}`);
-      log.info(`[FETCH] Start: ${markdown.slice(0, 200).replace(/\n/g, "\\n")}`);
-      log.info(`[FETCH] End: ${markdown.slice(-200).replace(/\n/g, "\\n")}`);
-
-      // Truncate if too long
-      if (markdown.length > MAX_PAGE_CONTENT_LENGTH) {
-        log.info(`[FETCH] Truncating from ${markdown.length} to ${MAX_PAGE_CONTENT_LENGTH}`);
-        return markdown.slice(0, MAX_PAGE_CONTENT_LENGTH) + "\n\n[Content truncated...]";
-      }
       return markdown;
     } catch (error) {
       log.error(`[FETCH] Error fetching ${url}`, error);
-      return `Fetch error: ${error instanceof Error ? error.message : String(error)}`;
+      return null;
     }
+  }
+
+  /**
+   * Fetch page and return formatted for main agent
+   * Truncates if too long
+   */
+  async fetchPage(url: string, waitForJs: boolean): Promise<string> {
+    const content = await this.fetchPageContent(url, waitForJs);
+    
+    if (!content) {
+      if (!this.allowedUrls.has(url)) {
+        return `BLOCKED: URL "${url}" not in allowlist. URLs must come from search results or user messages.`;
+      }
+      return `Could not fetch ${url}`;
+    }
+
+    // Debug logging
+    log.info(`[FETCH] Start: ${content.slice(0, 200).replace(/\n/g, "\\n")}`);
+    log.info(`[FETCH] End: ${content.slice(-200).replace(/\n/g, "\\n")}`);
+
+    // Truncate if too long
+    if (content.length > MAX_PAGE_CONTENT_LENGTH) {
+      log.info(`[FETCH] Truncating from ${content.length} to ${MAX_PAGE_CONTENT_LENGTH}`);
+      return content.slice(0, MAX_PAGE_CONTENT_LENGTH) + "\n\n[Content truncated...]";
+    }
+    return content;
   }
 
   // ==========================================
