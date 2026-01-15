@@ -32,8 +32,7 @@ function getOpencodeConfig(): Config {
         }
       }
     },
-    // Enable the commit-gate plugin
-    plugin: [".opencode/plugin/commit-gate.ts"],
+    // commit-gate plugin is installed globally in container via Dockerfile
     // Auto-allow all operations for autonomous mode
     permission: {
       edit: "allow",
