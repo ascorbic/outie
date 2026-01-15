@@ -1,4 +1,4 @@
-FROM docker.io/cloudflare/sandbox:0.6.11
+FROM docker.io/cloudflare/sandbox:0.7.0
 
 # Add opencode install location to PATH before installation
 ENV PATH="/root/.opencode/bin:${PATH}"
@@ -12,5 +12,5 @@ RUN curl -fsSLk https://opencode.ai/install -o /tmp/install-opencode.sh \
 # Create workspace directory
 WORKDIR /home/user/workspace
 
-# Expose OpenCode server port
 EXPOSE 4096
+EXPOSE 3000

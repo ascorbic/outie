@@ -59,14 +59,28 @@ export interface Message {
 // Model tiers for cost optimization
 export type ModelTier = "fast" | "thinking";
 
+// Coding task state - tracks OpenCode sessions for continuation
+export interface CodingTaskState {
+  repoUrl: string;
+  branch: string;           // Worker-chosen branch name, e.g., "innie/add-error-handling"
+  sessionId: string;        // OpenCode session ID for continuation
+  lastTask: string;         // Description of last task
+  lastTimestamp: number;    // When it ran
+}
+
+// Decision from worker model about how to handle a coding task
+export interface CodingTaskDecision {
+  action: "continue" | "new";
+  branch?: string;          // Required if action is "new"
+}
+
 // Import Sandbox type for binding
 import type { Sandbox } from "@cloudflare/sandbox";
 
 // Environment bindings
 export interface Env {
   OUTIE: DurableObjectNamespace;
-  // Containers beta - optional until you have access
-  SANDBOX?: DurableObjectNamespace<Sandbox>;
+  SANDBOX: DurableObjectNamespace<Sandbox>;
   REPOS: R2Bucket;
   AI: Ai;
   // AI Gateway config
@@ -79,5 +93,9 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string; // Your personal chat ID
   TELEGRAM_WEBHOOK_SECRET?: string; // Secret for webhook verification
+
+  // Z.AI (GLM Coding Plan) - optional fallback for sandbox
+  ZAI_API_KEY?: string;
+
   ENVIRONMENT: string;
 }

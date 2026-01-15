@@ -6,188 +6,265 @@ import {
   proxyToOpencode,
   type OpencodeServer,
 } from "@cloudflare/sandbox/opencode";
-import type { Env } from "./types";
 
-// OpenCode Config type (simplified)
-interface OpencodeConfig {
-  provider?: Record<string, unknown>;
-  model?: string;
-  permission?: { auto?: boolean };
-}
+import { OpencodeClient, Part, TextPart, type Config } from "@opencode-ai/sdk"
+import { env } from "cloudflare:workers";
+import type { CodingTaskState, CodingTaskDecision } from "./types";
 
-// Re-export Sandbox for wrangler config
+// Keep exporting the original `Sandbox` class name for compatibility.
+// (Older deployments referenced this Durable Object class name.)
 export { Sandbox } from "@cloudflare/sandbox";
 
-// Build OpenCode config for CF AI Gateway with BYOK
-function getOpencodeConfig(_env: Env): OpencodeConfig {
+// Export a distinct Sandbox class name with SQL enabled.
+// IMPORTANT: this class must be created with `new_sqlite_classes` in wrangler migrations.
+export { Sandbox as OutieSandbox } from "@cloudflare/sandbox";
+
+// OpenCode model routing: Z.AI Coding Plan with GLM-4.7
+// Uses zai-coding-plan provider (different from regular zai - requires GLM Coding Plan subscription)
+// API key passed via ZAI_API_KEY env var in getOpencodeEnv()
+function getOpencodeConfig(): Config {
   return {
+    model: "zai-coding-plan/glm-4.7",
     provider: {
-      "cloudflare-ai-gateway": {
-        models: {
-          "anthropic/claude-sonnet-4": {
-            name: "Claude Sonnet 4",
-          },
-          "anthropic/claude-haiku-4": {
-            name: "Claude Haiku 4",
-          },
-        },
-      },
+      zhipu: {
+        options: {
+          apiKey: env.ZAI_API_KEY 
+        }
+      }
     },
-    // Default model
-    model: "cloudflare-ai-gateway/anthropic/claude-sonnet-4",
-    // Auto-approve tool permissions for headless operation
+    // Enable the commit-gate plugin
+    plugin: [".opencode/plugin/commit-gate.ts"],
+    // Auto-allow all operations for autonomous mode
     permission: {
-      auto: true,
+      edit: "allow",
+      bash: "allow",
     },
   };
 }
 
-// Environment variables needed for CF AI Gateway in sandbox
-function getOpencodeEnv(env: Env): Record<string, string> {
-  return {
-    CLOUDFLARE_ACCOUNT_ID: env.CF_ACCOUNT_ID,
-    CLOUDFLARE_GATEWAY_ID: env.CF_AIG_GATEWAY_ID,
-    CLOUDFLARE_API_TOKEN: env.CF_API_TOKEN,
-  };
+export interface CodingTaskOptions {
+  repoUrl: string;
+  task: string;
+  model?: { providerID: string; modelID: string };
+  // State from previous task (for continuation)
+  previousState?: CodingTaskState;
+  // Decision about how to handle this task
+  decision: CodingTaskDecision;
+  // GitHub token for pushing
+  githubToken?: string;
 }
 
 export interface CodingTaskResult {
   response: string;
   diff: string;
-  sessionId: string;
+  // Return state for next invocation
+  state: CodingTaskState;
 }
 
 // Run a coding task using OpenCode in a sandbox
 export async function runCodingTask(
   sandboxBinding: DurableObjectNamespace<Sandbox>,
-  env: Env,
-  options: {
-    repoUrl: string;
-    task: string;
-    sandboxId?: string;
-    model?: { providerID: string; modelID: string };
-  },
+  options: CodingTaskOptions,
 ): Promise<CodingTaskResult> {
-  const sandboxId = options.sandboxId ?? crypto.randomUUID().slice(0, 8);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sandbox = getSandbox(sandboxBinding, sandboxId) as any;
+  
+  const sleep = (time: number) => new Promise((r) => setTimeout(r, time))
+
+  const sandbox = getSandbox(sandboxBinding, 'opencode') 
+  console.log(`[SANDBOX] Created sandbox stub`);
 
   // Clone the repository
-  const repoName =
-    options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
+  const repoName = options.repoUrl.split("/").pop()?.replace(".git", "") ?? "repo";
   const targetDir = `/home/user/${repoName}`;
 
-  await sandbox.gitCheckout(options.repoUrl, { targetDir });
-  console.log(`[SANDBOX] Cloned ${options.repoUrl} to ${targetDir}`);
-
-  // Set environment variables for AI Gateway
-  await sandbox.setEnvVars(getOpencodeEnv(env));
-
-  // Get OpenCode client - use any for client type since SDK types may vary
-  const { client } = await createOpencode(sandbox, {
-    directory: targetDir,
-    config: getOpencodeConfig(env) as any,
-  });
-
-  // Cast client to expected interface
-  const oc = client as {
-    session: {
-      create: (opts: { body: { title: string }; query: { directory: string } }) => Promise<{ data?: { id: string } }>;
-      prompt: (opts: {
-        path: { id: string };
-        query: { directory: string };
-        body: {
-          model: { providerID: string; modelID: string };
-          parts: Array<{ type: string; text: string }>;
-        };
-      }) => Promise<{ data?: { parts: Array<{ type: string; text?: string }> } }>;
-      diff: (opts: {
-        path: { id: string };
-        query: { directory: string };
-      }) => Promise<{ data?: Array<{ file: string; before: string; after: string }> }>;
-    };
-  };
-
-  // Create a session
-  const session = await oc.session.create({
-    body: { title: `Task: ${options.task.slice(0, 50)}` },
-    query: { directory: targetDir },
-  });
-
-  if (!session.data) {
-    throw new Error(`Failed to create session: ${JSON.stringify(session)}`);
+  console.log(`[SANDBOX] About to gitCheckout ${options.repoUrl} to ${targetDir}`);
+  try {
+    await sleep(2000)
+    const exists = await sandbox.exists(targetDir)
+    if(exists.exists) {
+      console.log("[SANDBOX] Repo already exists, pulling latest")
+      // Pull latest from main/master before branching
+      await sandbox.exec(`cd ${targetDir} && git fetch origin`);
+    } else {
+      await sandbox.gitCheckout(options.repoUrl, { targetDir, depth: 1 });
+      console.log(`[SANDBOX] Cloned ${options.repoUrl} to ${targetDir}`);
+    }
+  } catch (err) {
+    console.error(`[SANDBOX] gitCheckout failed:`, err);
+    throw err;
   }
 
-  console.log(`[SANDBOX] Created session ${session.data.id}`);
+  // Configure git credentials if provided
+  if (options.githubToken) {
+    console.log("[SANDBOX] Configuring git credentials");
+    // Configure credential helper for this repo
+    await sandbox.exec(
+      `cd ${targetDir} && git config credential.helper '!f() { echo "password=${options.githubToken}"; }; f'`
+    );
+    // Also set remote URL with token for HTTPS
+    const repoPath = options.repoUrl.replace("https://github.com/", "");
+    await sandbox.exec(
+      `cd ${targetDir} && git remote set-url origin https://x-access-token:${options.githubToken}@github.com/${repoPath}`
+    );
+  }
 
-  // Build the prompt
-  const prompt = `You are working in the ${repoName} repository.
+  // Handle branch management based on decision
+  const targetBranch = options.decision.action === "new" 
+    ? options.decision.branch! 
+    : options.previousState!.branch;
 
-Task: ${options.task}
+  console.log(`[SANDBOX] Branch strategy: ${options.decision.action}, target: ${targetBranch}`);
 
-Please implement the necessary changes. Do not commit - just make the edits.`;
+  if (options.decision.action === "new") {
+    // Create new branch from main/master
+    console.log(`[SANDBOX] Creating new branch: ${targetBranch}`);
+    try {
+      // Try to get the default branch
+      const defaultBranch = await sandbox.exec(
+        `cd ${targetDir} && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main"`
+      );
+      const baseBranch = defaultBranch.stdout?.trim() || "main";
+      
+      // Checkout base branch and pull latest
+      await sandbox.exec(`cd ${targetDir} && git checkout ${baseBranch} && git pull origin ${baseBranch}`);
+      
+      // Create and checkout new branch
+      await sandbox.exec(`cd ${targetDir} && git checkout -b ${targetBranch}`);
+    } catch (err) {
+      console.error(`[SANDBOX] Failed to create branch:`, err);
+      // Fallback: just create branch from current HEAD
+      await sandbox.exec(`cd ${targetDir} && git checkout -b ${targetBranch}`);
+    }
+  } else {
+    // Continue on existing branch
+    console.log(`[SANDBOX] Continuing on branch: ${targetBranch}`);
+    try {
+      // Check if branch exists locally
+      const branchExists = await sandbox.exec(
+        `cd ${targetDir} && git show-ref --verify --quiet refs/heads/${targetBranch} && echo "yes" || echo "no"`
+      );
+      
+      if (branchExists.stdout?.trim() === "yes") {
+        await sandbox.exec(`cd ${targetDir} && git checkout ${targetBranch}`);
+      } else {
+        // Try to checkout from remote
+        await sandbox.exec(`cd ${targetDir} && git checkout -b ${targetBranch} origin/${targetBranch}`);
+      }
+    } catch (err) {
+      console.error(`[SANDBOX] Failed to checkout branch, creating fresh:`, err);
+      await sandbox.exec(`cd ${targetDir} && git checkout -b ${targetBranch}`);
+    }
+  }
 
-  // Send prompt and wait for response
-  const result = await oc.session.prompt({
-    path: { id: session.data.id },
+  // Create OpenCode client (starts server automatically if needed)
+  console.log(`[SANDBOX] Creating OpenCode client in ${targetDir}`);
+  const { client, server } = await createOpencode<OpencodeClient>(sandbox, {
+    directory: targetDir,
+    config: getOpencodeConfig(),
+  });
+  console.log(`[SANDBOX] OpenCode server on port ${server.port}`);
+  
+  await client.event.subscribe({
+    onSseEvent: (event) => console.log(event)
+  })
+
+  // Try to continue existing session or create new one
+  let sessionId: string;
+  
+  if (options.decision.action === "continue" && options.previousState?.sessionId) {
+    console.log(`[SANDBOX] Attempting to continue session: ${options.previousState.sessionId}`);
+    try {
+      // Check if session exists
+      const existingSession = await client.session.get({
+        path: { id: options.previousState.sessionId }
+      });
+      
+      if (existingSession.data) {
+        sessionId = options.previousState.sessionId;
+        console.log(`[SANDBOX] Continuing existing session: ${sessionId}`);
+      } else {
+        throw new Error("Session not found");
+      }
+    } catch (err) {
+      console.log(`[SANDBOX] Previous session not found, creating new one`);
+      const session = await client.session.create({
+        body: { title: `Task: ${options.task.slice(0, 50)}` },
+        query: { directory: targetDir },
+      });
+      if (!session.data) {
+        throw new Error(`Failed to create session: ${JSON.stringify(session)}`);
+      }
+      sessionId = session.data.id;
+    }
+  } else {
+    // Create new session
+    const session = await client.session.create({
+      body: { title: `Task: ${options.task.slice(0, 50)}` },
+      query: { directory: targetDir },
+    });
+    if (!session.data) {
+      throw new Error(`Failed to create session: ${JSON.stringify(session)}`);
+    }
+    sessionId = session.data.id;
+    console.log(`[SANDBOX] Created new session: ${sessionId}`);
+  }
+
+  // Build the prompt - note we now tell it to commit and push
+  const prompt = `You are working in the ${repoName} repository on branch \`${targetBranch}\`.
+
+<task>
+${options.task}
+</task>
+
+Please implement the necessary changes. When you are done:
+1. Stage and commit your changes with a clear, descriptive commit message
+2. Push to the remote branch
+
+The commit-gate plugin will prevent this session from ending until changes are committed and pushed.`;
+
+  console.log(`[SANDBOX] Sending prompt to session ${sessionId}`);
+
+  const result = await client.session.prompt({
+    path: { id: sessionId },
     query: { directory: targetDir },
     body: {
-      model: options.model ?? {
-        providerID: "cloudflare-ai-gateway",
-        modelID: "anthropic/claude-sonnet-4",
-      },
+      model: options.model ?? { providerID: "zai-coding-plan", modelID: "glm-4.7" },
       parts: [{ type: "text", text: prompt }],
     },
   });
 
-  // Extract response text
+  console.log(`[SANDBOX] Got response from session ${sessionId}`);
+
+  // Extract text from response parts
   const parts = result.data?.parts ?? [];
-  const textParts = parts.filter((p) => p.type === "text" && p.text);
-  const response = textParts.map((p) => p.text ?? "").join("\n");
+  const response = parts
+    .filter((p: { type: string; text?: string }) => p.type === "text" && p.text)
+    .map((p) => (p as TextPart).text ?? "")
+    .join("\n");
 
   // Get the diff
-  const diffResult = await oc.session.diff({
-    path: { id: session.data.id },
+  const diffResult = await client.session.diff({
+    path: { id: sessionId },
     query: { directory: targetDir },
   });
 
   // Format as simple diff output
   const diff =
     diffResult.data
-      ?.map((f) => `--- a/${f.file}\n+++ b/${f.file}\n${f.after}`)
-      .join("\n\n") ?? "";
+      ?.map((f) => `--- a/${f.file}<br>+++ b/${f.file}<br>${f.after}`)
+      .join("<br>") ?? "";
+
+  // Build state for next invocation
+  const newState: CodingTaskState = {
+    repoUrl: options.repoUrl,
+    branch: targetBranch,
+    sessionId,
+    lastTask: options.task,
+    lastTimestamp: Date.now(),
+  };
 
   return {
     response,
     diff,
-    sessionId: session.data.id,
+    state: newState,
   };
-}
-
-// Proxy requests to OpenCode web UI (for interactive use)
-export async function handleOpencodeProxy(
-  request: Request,
-  sandboxBinding: DurableObjectNamespace<Sandbox>,
-  env: Env,
-  options: {
-    sandboxId?: string;
-    directory?: string;
-  } = {},
-): Promise<Response> {
-  const sandboxId = options.sandboxId ?? "opencode-ui";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sandbox = getSandbox(sandboxBinding, sandboxId) as any;
-  const directory = options.directory ?? "/home/user/workspace";
-
-  // Set environment variables
-  await sandbox.setEnvVars(getOpencodeEnv(env));
-
-  // Start OpenCode server
-  const server: OpencodeServer = await createOpencodeServer(sandbox, {
-    directory,
-    config: getOpencodeConfig(env) as any,
-  });
-
-  // Proxy the request
-  return proxyToOpencode(request, sandbox, server);
 }

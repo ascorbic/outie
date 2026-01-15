@@ -165,10 +165,26 @@ export function createTools(agent: Outie) {
       },
     }),
 
+    // Telegram tool
+    send_telegram: tool({
+      description:
+        "Send a message to Telegram. Use this to notify the user or send information to their Telegram chat.",
+      inputSchema: z.object({
+        message: z.string().describe("The message to send"),
+        chat_id: z
+          .string()
+          .optional()
+          .describe("Optional: specific chat ID (defaults to owner's chat)"),
+      }),
+      execute: async ({ message, chat_id }) => {
+        return agent.sendTelegram(message, chat_id);
+      },
+    }),
+
     // Coding task tool - delegates to OpenCode in a sandbox
     run_coding_task: tool({
       description:
-        "Delegate a coding task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, or making changes to a git repository. Returns the AI's explanation and a diff of changes made.",
+        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given intructions. Returns the AI's explanation and a diff of changes made.`,
       inputSchema: z.object({
         repo_url: z
           .string()
@@ -180,16 +196,13 @@ export function createTools(agent: Outie) {
       execute: async ({ repo_url, task }) => {
         try {
           const env = agent.getEnv();
-          
-          // Check if sandbox is available
-          if (!env.SANDBOX) {
-            return "Error: Sandbox containers not yet deployed. The run_coding_task tool is not available.";
-          }
-          
-          const result = await runCodingTask(env.SANDBOX, env, {
+          console.log('running coding task')
+          const result = await runCodingTask(env.SANDBOX, {
             repoUrl: repo_url,
             task,
           });
+
+          console.log(result)
 
           if (!result.diff) {
             return `## Response\n${result.response}\n\n_No changes were made to the repository._`;

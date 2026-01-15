@@ -9,6 +9,8 @@ import type {
   Message,
   ConversationSummary,
   ModelTier,
+  CodingTaskState,
+  CodingTaskDecision,
 } from "./types";
 import { DEFAULT_MEMORY_BLOCKS, renderMemoryBlocks } from "./memory";
 import { getNextCronTime } from "./scheduling";
@@ -16,7 +18,8 @@ import { searchWeb, searchNews } from "./web-search";
 import { fetchPageAsMarkdown } from "./web-fetch";
 import { createTools } from "./tools";
 import { createModelProvider, createSummarizationModel } from "./models";
-import { notifyOwner } from "./telegram";
+import { notifyOwner, sendMessage } from "./telegram";
+import { runCodingTask } from "./sandbox";
 
 export class Outie extends DurableObject<Env> {
   private state: OutieState;
@@ -88,6 +91,14 @@ export class Outie extends DurableObject<Env> {
         from_timestamp INTEGER,
         to_timestamp INTEGER,
         message_count INTEGER
+      );
+      
+      CREATE TABLE IF NOT EXISTS coding_task_state (
+        repo_url TEXT PRIMARY KEY,
+        branch TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        last_task TEXT NOT NULL,
+        last_timestamp INTEGER NOT NULL
       );
     `);
 
@@ -577,6 +588,19 @@ Keep the summary under 500 words. Focus on what would be important to know if co
       .join("\n");
   }
 
+  async sendTelegram(message: string, chatId?: string): Promise<string> {
+    const targetChatId = chatId ?? this.env.TELEGRAM_CHAT_ID;
+    if (!targetChatId) {
+      return "Error: No chat ID provided and TELEGRAM_CHAT_ID not configured";
+    }
+
+    const success = await sendMessage(this.env, targetChatId, message);
+    if (success) {
+      return `Message sent to Telegram chat ${targetChatId}`;
+    }
+    return "Failed to send Telegram message";
+  }
+
   async webSearch(query: string, count: number): Promise<string> {
     const apiKey = this.env.BRAVE_SEARCH_API_KEY;
     if (!apiKey) {
@@ -669,6 +693,199 @@ Keep the summary under 500 words. Focus on what would be important to know if co
     }
   }
 
+  // ==========================================
+  // Coding Task State Management
+  // ==========================================
+
+  // Get coding task state for a repo
+  getCodingTaskState(repoUrl: string): CodingTaskState | null {
+    const rows = this.ctx.storage.sql
+      .exec<{
+        repo_url: string;
+        branch: string;
+        session_id: string;
+        last_task: string;
+        last_timestamp: number;
+      }>("SELECT * FROM coding_task_state WHERE repo_url = ?", repoUrl)
+      .toArray();
+
+    if (rows.length === 0) return null;
+
+    const row = rows[0];
+    return {
+      repoUrl: row.repo_url,
+      branch: row.branch,
+      sessionId: row.session_id,
+      lastTask: row.last_task,
+      lastTimestamp: row.last_timestamp,
+    };
+  }
+
+  // Save coding task state
+  saveCodingTaskState(state: CodingTaskState): void {
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO coding_task_state 
+       (repo_url, branch, session_id, last_task, last_timestamp)
+       VALUES (?, ?, ?, ?, ?)`,
+      state.repoUrl,
+      state.branch,
+      state.sessionId,
+      state.lastTask,
+      state.lastTimestamp,
+    );
+  }
+
+  // Decide whether to continue or start new coding task
+  async decideCodingTaskAction(
+    repoUrl: string,
+    task: string,
+    previousState: CodingTaskState | null,
+  ): Promise<CodingTaskDecision> {
+    // If no previous state, always create new
+    if (!previousState) {
+      const branch = await this.generateBranchName(task);
+      return { action: "new", branch };
+    }
+
+    // Check how old the previous task is
+    const ageMs = Date.now() - previousState.lastTimestamp;
+    const ageHours = ageMs / (1000 * 60 * 60);
+
+    // If more than 24 hours old, start fresh
+    if (ageHours > 24) {
+      const branch = await this.generateBranchName(task);
+      return { action: "new", branch };
+    }
+
+    // Ask the model to decide
+    const prompt = `You're managing coding tasks in a repository.
+
+Previous task (${this.formatTimeAgo(ageMs)} ago):
+Branch: ${previousState.branch}
+Task: ${previousState.lastTask}
+
+New task: ${task}
+
+Is the new task a CONTINUATION of the previous work (same feature/bug/topic), or is it NEW unrelated work?
+
+Reply with ONLY valid JSON, no other text:
+- If continuing: {"action": "continue"}
+- If new work: {"action": "new", "branch": "innie/descriptive-slug"}
+
+Branch names should be lowercase, use hyphens, and describe the work (e.g., "innie/add-error-handling", "innie/fix-auth-bug").`;
+
+    try {
+      const { text } = await generateText({
+        model: createModelProvider(this.env, "fast"),
+        prompt,
+      });
+
+      // Parse the JSON response
+      const jsonMatch = text.match(/\{[^}]+\}/);
+      if (jsonMatch) {
+        const decision = JSON.parse(jsonMatch[0]) as CodingTaskDecision;
+        if (decision.action === "continue" || (decision.action === "new" && decision.branch)) {
+          return decision;
+        }
+      }
+    } catch (error) {
+      console.error("[CODING_TASK] Failed to parse decision:", error);
+    }
+
+    // Fallback: generate new branch
+    const branch = await this.generateBranchName(task);
+    return { action: "new", branch };
+  }
+
+  // Generate a branch name from task description
+  private async generateBranchName(task: string): Promise<string> {
+    try {
+      const { text } = await generateText({
+        model: createModelProvider(this.env, "fast"),
+        prompt: `Generate a git branch name for this task. Use the format "innie/descriptive-slug".
+Rules:
+- Lowercase only
+- Use hyphens between words
+- Max 50 characters total
+- Be descriptive but concise
+
+Task: ${task}
+
+Reply with ONLY the branch name, nothing else.`,
+      });
+
+      const branch = text.trim().toLowerCase().replace(/[^a-z0-9\-\/]/g, "-");
+      if (branch.startsWith("innie/") && branch.length <= 50) {
+        return branch;
+      }
+    } catch (error) {
+      console.error("[CODING_TASK] Failed to generate branch name:", error);
+    }
+
+    // Fallback: generate from task
+    const slug = task
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, 30)
+      .replace(/-+$/, "");
+    return `innie/${slug}`;
+  }
+
+  // Format time ago for display
+  private formatTimeAgo(ms: number): string {
+    const minutes = Math.floor(ms / (1000 * 60));
+    if (minutes < 60) return `${minutes} minutes`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hours`;
+    const days = Math.floor(hours / 24);
+    return `${days} days`;
+  }
+
+  // ==========================================
+  // Managed Coding Task Orchestration
+  // ==========================================
+
+  // Run a coding task with full state management
+  // This is the main entry point for both the tool and /code endpoint
+  async runManagedCodingTask(
+    repoUrl: string,
+    task: string,
+  ): Promise<{ response: string; diff: string; branch: string }> {
+    await this.init();
+
+    console.log(`[CODING_TASK] Starting managed task for ${repoUrl}`);
+
+    // 1. Get existing state for this repo
+    const previousState = this.getCodingTaskState(repoUrl);
+    if (previousState) {
+      console.log(`[CODING_TASK] Found previous state: branch=${previousState.branch}, session=${previousState.sessionId}`);
+    }
+
+    // 2. Decide whether to continue or start fresh
+    const decision = await this.decideCodingTaskAction(repoUrl, task, previousState);
+    console.log(`[CODING_TASK] Decision: ${decision.action}${decision.branch ? `, branch=${decision.branch}` : ""}`);
+
+    // 3. Run the task in sandbox
+    const result = await runCodingTask(this.env.SANDBOX, {
+      repoUrl,
+      task,
+      previousState: previousState ?? undefined,
+      decision,
+      // GITHUB_TOKEN needs to be added to wrangler.jsonc secrets
+      githubToken: (this.env as unknown as Record<string, string>).GITHUB_TOKEN,
+    });
+
+    // 4. Save updated state
+    this.saveCodingTaskState(result.state);
+    console.log(`[CODING_TASK] Saved state: branch=${result.state.branch}, session=${result.state.sessionId}`);
+
+    return {
+      response: result.response,
+      diff: result.diff,
+      branch: result.state.branch,
+    };
+  }
+
   // Build system prompt with memory blocks
   private buildSystemPrompt(): string {
     const now = new Date();
@@ -719,6 +936,10 @@ For coding tasks:
 - Provide a git repository URL and a clear description of what to implement/fix
 - OpenCode will clone the repo, make changes, and return a diff
 - Use this for implementing features, fixing bugs, or refactoring code
+
+For Telegram:
+- Use send_telegram to send messages to the user's Telegram chat
+- Useful for notifications, alerts, or sending information the user wants to receive on mobile
 
 IMPORTANT: If someone asks you to remember something, you MUST call a memory tool.
 

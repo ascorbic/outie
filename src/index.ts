@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { html } from "hono/html";
 import type { Env } from "./types";
-import { handleOpencodeProxy, runCodingTask } from "./sandbox";
+import { runCodingTask } from "./sandbox";
 import {
   verifyWebhook,
   sendMessage,
@@ -10,9 +10,9 @@ import {
   type TelegramUpdate,
 } from "./telegram";
 
-// Re-export Durable Objects
+// Re-export Durable Objects (Workflow removed - not compatible with Containers yet)
 export { Outie } from "./outie";
-export { Sandbox } from "./sandbox";
+export { Sandbox, OutieSandbox } from "./sandbox";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -294,13 +294,6 @@ app.post("/reset", async (c) => {
   return stub.fetch(new Request("http://internal/reset", { method: "POST" }));
 });
 
-// Debug endpoint
-app.get("/debug", async (c) => {
-  const id = c.env.OUTIE.idFromName("default");
-  const stub = c.env.OUTIE.get(id);
-
-  return stub.fetch(new Request("http://internal/debug"));
-});
 
 // ==========================================
 // Telegram Bot webhook
@@ -369,56 +362,38 @@ app.post("/telegram", async (c) => {
   }
 });
 
-// ==========================================
-// OpenCode Sandbox endpoints
-// ==========================================
-
-// Run a coding task programmatically
+// Run a coding task synchronously.
+// Client should use a long timeout (5-10 minutes).
+// Routes through Outie DO for state management.
 app.post("/code", async (c) => {
-  // Check if sandbox is available
-  if (!c.env.SANDBOX) {
-    return c.json({ error: "Sandbox containers not yet deployed" }, 503);
-  }
+  const id = c.env.OUTIE.idFromName("default");
+  const stub = c.env.OUTIE.get(id);
 
-  const body = await c.req.json<{
-    repo_url: string;
-    task: string;
-  }>();
+  // Forward to DO
+  const response = await stub.fetch(
+    new Request("http://internal/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(await c.req.json()),
+    }),
+  );
 
-  if (!body.repo_url || !body.task) {
-    return c.json({ error: "repo_url and task are required" }, 400);
-  }
-
-  try {
-    const result = await runCodingTask(c.env.SANDBOX, c.env, {
-      repoUrl: body.repo_url,
-      task: body.task,
-    });
-
-    return c.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return c.json({ error: message }, 500);
-  }
+  return response;
 });
 
-// Proxy to OpenCode web UI
-// Browse to /opencode/ for interactive coding
-app.all("/opencode/*", async (c) => {
-  // Check if sandbox is available
-  if (!c.env.SANDBOX) {
-    return c.text("Sandbox containers not yet deployed", 503);
-  }
 
-  // Strip /opencode prefix for the proxy
-  const url = new URL(c.req.url);
-  const path = url.pathname.replace(/^\/opencode/, "") || "/";
-  const newUrl = new URL(path + url.search, url.origin);
-  const request = new Request(newUrl.toString(), c.req.raw);
+// // Proxy to OpenCode web UI
+// // Browse to /opencode/ for interactive coding
+// app.all("/opencode/*", async (c) => {
+//   // Strip /opencode prefix for the proxy
+//   const url = new URL(c.req.url);
+//   const path = url.pathname.replace(/^\/opencode/, "") || "/";
+//   const newUrl = new URL(path + url.search, url.origin);
+//   const request = new Request(newUrl.toString(), c.req.raw);
 
-  return handleOpencodeProxy(request, c.env.SANDBOX, c.env, {
-    directory: "/home/user/workspace",
-  });
-});
+//   return handleOpencodeProxy(request, c.env.SANDBOX, c.env, {
+//     directory: "/home/user/workspace",
+//   });
+// });
 
 export default app;

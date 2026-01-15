@@ -18,11 +18,10 @@
         "name": "OUTIE",
         "class_name": "Outie",
       },
-      // Containers beta - uncomment when you have access
-      // {
-      //   "name": "SANDBOX",
-      //   "class_name": "Sandbox",
-      // },
+      {
+        "name": "SANDBOX",
+        "class_name": "OutieSandbox",
+      },
     ],
   },
 
@@ -33,8 +32,11 @@
     },
     {
       "tag": "v2",
-      // Empty migration to match existing state
-      // Sandbox was attempted but containers beta not available
+      // Placeholder - sandbox migration attempted (old Sandbox class)
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["OutieSandbox"],
     },
   ],
 
@@ -46,15 +48,21 @@
     },
   ],
 
+
+
+  // Enable logs (including container logs)
+  "observability": {
+    "enabled": true,
+  },
+
   // Sandbox container for code execution with OpenCode
-  // Containers beta - uncomment when you have access
-  // "containers": [
-  //   {
-  //     "class_name": "Sandbox",
-  //     "image": "./Dockerfile",
-  //     "instance_type": "basic",
-  //   },
-  // ],
+  "containers": [
+    {
+      "class_name": "OutieSandbox",
+      "image": "./Dockerfile",
+      "instance_type": "basic",
+    },
+  ],
 
   "vars": {
     "ENVIRONMENT": "development",
@@ -68,4 +76,5 @@
   // - TELEGRAM_BOT_TOKEN: Bot token from @BotFather
   // - TELEGRAM_CHAT_ID: Your Telegram user ID (99498607)
   // - TELEGRAM_WEBHOOK_SECRET: Random secret for webhook verification
+  // - ZAI_API_KEY: Z.AI API key for OpenCode fallback
 }
