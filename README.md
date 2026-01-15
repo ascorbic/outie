@@ -9,6 +9,8 @@ A stateful AI agent that runs on Cloudflare Workers. Durable Object + SQLite for
 
 It adds to these, scheduled reminders via DO Alarms, web search via Brave, and web fetch via the Browser Rendering API.
 
+It is the counterpart to [Innie](https://github.com/ascorbic/innie), which runs locally on my Mac and uses MCP, skills and OpenCode plugins for memory and tool execution.
+
 ## Architecture
 
 ```
@@ -112,13 +114,13 @@ All routes go through the worker, which calls the DO via RPC (not fetch).
 
 **Cloudflare Access** – The web UI and API endpoints are protected by Cloudflare Access. Configure an Access policy in the dashboard to restrict who can reach the worker.
 
-**Telegram** – Two layers: webhook requests are verified using a secret token (`TELEGRAM_WEBHOOK_SECRET`), and user IDs are checked against an allowlist. Unauthorized users are silently ignored.
+**Telegram** – Two layers: webhook requests are verified using a secret token (`TELEGRAM_WEBHOOK_SECRET`), and user IDs are checked against an allowlist. Unauthorized users are silently ignored. Bot can only communicate with allowed users.
 
-**URL allowlist** – The `fetch_page` tool can only fetch URLs that came from search results or user messages. Prevents the agent from being tricked into fetching arbitrary URLs (SSRF mitigation).
+**URL allowlist** – The `fetch_page` tool can only fetch URLs that came from search results or user messages. Prevents the agent from being tricked into fetching arbitrary URLs and exfiltrating secrets.
 
 **Security headers** – Standard headers on all responses: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
 
-**GitHub App** – Repo access uses a GitHub App with scoped permissions, not a personal access token. The app is installed only on repos the agent should access.
+**GitHub App** – Repo access uses a GitHub App with scoped permissions. The app is installed only on repos the agent should access.
 
 ## Setup
 
