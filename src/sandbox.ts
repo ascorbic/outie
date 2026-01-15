@@ -29,8 +29,9 @@ function getOpencodeConfig(): Config {
         }
       }
     },
-    // Load commit-gate plugin from global config (deps installed in container)
-    plugin: ["/root/.config/opencode/plugin/commit-gate.ts"],
+    // Don't specify local plugins here - they auto-load from ~/.config/opencode/plugin/
+    // The plugin array is only for npm packages
+    plugin: [],
     // Auto-allow all operations for autonomous mode
     permission: {
       edit: "allow",
