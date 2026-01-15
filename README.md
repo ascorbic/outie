@@ -24,7 +24,8 @@ It adds to these, scheduled reminders via DO Alarms, web search, and fetch.
 │  ├── Chat: Gemini 2.5 Flash via AI Gateway                      │
 │  ├── Thinking: Claude Opus 4 via AI Gateway (for reflections)   │
 │  ├── Embeddings: bge-small-en-v1.5 (Workers AI)                 │
-│  └── DO Alarms: scheduled tasks & reminders                     │
+│  ├── DO Alarms: scheduled tasks & reminders                     │
+│  └── Tools: memory, journal, scheduling, web search, fetch      │
 └─────────────────────────────────────────────────────────────────┘
                               │ RPC
                               ▼
