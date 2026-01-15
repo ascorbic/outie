@@ -1,9 +1,26 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { Outie } from "./outie";
+
+// Interface for tool context - matches Outie's tool handler methods
+export interface ToolContext {
+  getEnv(): Env;
+  memoryInsert(block: string, content: string, line: number): string;
+  memoryReplace(block: string, oldStr: string, newStr: string): string;
+  journalWrite(topic: string, content: string): Promise<string>;
+  journalSearch(query: string, limit: number): Promise<string>;
+  scheduleReminder(id: string, description: string, payload: string, cron: string): Promise<string>;
+  scheduleOnce(id: string, description: string, payload: string, datetime: string): Promise<string>;
+  cancelReminder(id: string): string;
+  listReminders(): string;
+  sendTelegram(message: string, chatId?: string): Promise<string>;
+  webSearch(query: string, count: number): Promise<string>;
+  newsSearch(query: string, count: number): Promise<string>;
+  fetchPage(url: string, waitForJs: boolean): Promise<string>;
+  runManagedCodingTask(repoUrl: string, task: string): Promise<{ response: string; branch: string }>;
+}
 
 // Tool factory that creates tools with access to the agent instance
-export function createTools(agent: Outie) {
+export function createTools(agent: ToolContext) {
   return {
     // Memory tools
     memory_insert: tool({
@@ -184,7 +201,7 @@ export function createTools(agent: Outie) {
     // Uses runManagedCodingTask for state management (branch, session continuation)
     run_coding_task: tool({
       description:
-        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given instructions. Returns the AI's explanation and a diff of changes made. Changes are automatically committed and pushed to a feature branch.`,
+        `Delegate a task to OpenCode running in a secure sandbox. Use for implementing features, fixing bugs, refactoring code, exploring or making changes to a git repository. OpenCode is an advanced coding agent that can perform complex tasks on a repo when given instructions. Changes are automatically committed and pushed to a feature branch.`,
       inputSchema: z.object({
         repo_url: z
           .string()
@@ -200,11 +217,7 @@ export function createTools(agent: Outie) {
 
           console.log("[TOOL] Coding task completed on branch:", result.branch);
 
-          if (!result.diff) {
-            return `## Response\n${result.response}\n\n**Branch:** \`${result.branch}\`\n\n_No changes were made to the repository._`;
-          }
-
-          return `## Response\n${result.response}\n\n**Branch:** \`${result.branch}\`\n\n## Changes Made\n\`\`\`diff\n${result.diff}\n\`\`\``;
+          return `## Response\n${result.response}\n\n**Branch:** \`${result.branch}\``;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return `Error running coding task: ${message}`;

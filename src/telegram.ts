@@ -1,5 +1,4 @@
 // Telegram Bot API integration
-import type { Env } from "./types";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
@@ -83,12 +82,11 @@ export async function notifyOwner(
   return sendMessage(env, env.TELEGRAM_CHAT_ID, text, options);
 }
 
-// Verify webhook request is from Telegram
+// Verify webhook request is from Telegram (fail closed)
 export function verifyWebhook(request: Request, env: Env): boolean {
   if (!env.TELEGRAM_WEBHOOK_SECRET) {
-    // No secret configured, skip verification (not recommended for production)
-    console.warn("[TELEGRAM] Webhook secret not configured, skipping verification");
-    return true;
+    console.error("[TELEGRAM] Webhook secret not configured - rejecting request");
+    return false;
   }
 
   const secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");

@@ -1,13 +1,7 @@
 // OpenCode sandbox integration using @cloudflare/sandbox/opencode
 import { getSandbox, Sandbox } from "@cloudflare/sandbox";
-import {
-  createOpencode,
-  createOpencodeServer,
-  proxyToOpencode,
-  type OpencodeServer,
-} from "@cloudflare/sandbox/opencode";
-
-import { OpencodeClient, Part, TextPart, type Config } from "@opencode-ai/sdk"
+import { createOpencode } from "@cloudflare/sandbox/opencode";
+import { OpencodeClient, type Config, type TextPart } from "@opencode-ai/sdk";
 import { env } from "cloudflare:workers";
 import type { CodingTaskState, CodingTaskDecision } from "./types";
 
@@ -18,6 +12,9 @@ export { Sandbox } from "@cloudflare/sandbox";
 // Export a distinct Sandbox class name with SQL enabled.
 // IMPORTANT: this class must be created with `new_sqlite_classes` in wrangler migrations.
 export { Sandbox as OutieSandbox } from "@cloudflare/sandbox";
+
+// Type export for use in other modules
+export type { Sandbox as OutieSandboxType } from "@cloudflare/sandbox";
 
 // OpenCode model routing: Z.AI Coding Plan with GLM-4.7
 // Uses zai-coding-plan provider (different from regular zai - requires GLM Coding Plan subscription)
@@ -56,7 +53,6 @@ export interface CodingTaskOptions {
 
 export interface CodingTaskResult {
   response: string;
-  diff: string;
   // Return state for next invocation
   state: CodingTaskState;
 }
@@ -87,8 +83,6 @@ export async function runCodingTask(
   options: CodingTaskOptions,
 ): Promise<CodingTaskResult> {
   
-  const sleep = (time: number) => new Promise((r) => setTimeout(r, time))
-
   const sandbox = getSandbox(sandboxBinding, 'opencode') 
   console.log(`[SANDBOX] Created sandbox stub`);
   
@@ -177,6 +171,15 @@ export async function runCodingTask(
     }
   }
 
+  // Remove project's .opencode directory to prevent loading its plugins
+  // (plugins may have dependencies not installed in sandbox)
+  const projectOpencode = `${targetDir}/.opencode`;
+  const projectOpencodeExists = await sandbox.exists(projectOpencode);
+  if (projectOpencodeExists.exists) {
+    console.log(`[SANDBOX] Removing project .opencode directory to prevent plugin loading`);
+    await sandbox.exec(`rm -rf ${projectOpencode}`);
+  }
+
   // Create OpenCode client (starts server automatically if needed)
   console.log(`[SANDBOX] Creating OpenCode client in ${targetDir}`);
   const { client, server } = await createOpencode<OpencodeClient>(sandbox, {
@@ -185,9 +188,10 @@ export async function runCodingTask(
   });
   console.log(`[SANDBOX] OpenCode server on port ${server.port}`);
   
-  await client.event.subscribe({
-    onSseEvent: (event) => console.log(event)
-  })
+  // Subscribe to events for debugging (fire and forget)
+  client.event.subscribe({
+    onSseEvent: (event: unknown) => console.log("[OPENCODE]", event)
+  }).catch(() => { /* ignore subscription errors */ });
 
   // Try to continue existing session or create new one
   let sessionId: string;
@@ -259,21 +263,9 @@ The commit-gate plugin will prevent this session from ending until changes are c
   // Extract text from response parts
   const parts = result.data?.parts ?? [];
   const response = parts
-    .filter((p: { type: string; text?: string }) => p.type === "text" && p.text)
-    .map((p) => (p as TextPart).text ?? "")
+    .filter((p): p is TextPart => p.type === "text" && "text" in p)
+    .map((p) => p.text ?? "")
     .join("\n");
-
-  // Get the diff
-  const diffResult = await client.session.diff({
-    path: { id: sessionId },
-    query: { directory: targetDir },
-  });
-
-  // Format as simple diff output
-  const diff =
-    diffResult.data
-      ?.map((f) => `--- a/${f.file}<br>+++ b/${f.file}<br>${f.after}`)
-      .join("<br>") ?? "";
 
   // Build state for next invocation
   const newState: CodingTaskState = {
@@ -286,7 +278,6 @@ The commit-gate plugin will prevent this session from ending until changes are c
 
   return {
     response,
-    diff,
     state: newState,
   };
 }

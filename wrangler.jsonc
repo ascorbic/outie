@@ -40,16 +40,6 @@
     },
   ],
 
-  // R2 bucket for repo persistence
-  "r2_buckets": [
-    {
-      "binding": "REPOS",
-      "bucket_name": "outie-repos",
-    },
-  ],
-
-
-
   // Enable logs (including container logs)
   "observability": {
     "enabled": true,

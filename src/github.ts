@@ -6,6 +6,7 @@
  */
 
 import { SignJWT, importPKCS8 } from "jose";
+import { env } from "cloudflare:workers";
 
 export interface GitHubAppCredentials {
   clientId: string;      // Client ID (recommended over App ID)
@@ -74,12 +75,15 @@ export async function getInstallationToken(
 }
 
 /**
- * Get credentials from environment
+ * Get credentials from environment (uses cloudflare:workers env import)
+ * These secrets are set via `wrangler secret put` and may not be in the generated types.
  */
-export function getGitHubAppCredentials(env: Record<string, unknown>): GitHubAppCredentials | null {
-  const clientId = env.GITHUB_APP_CLIENT_ID as string | undefined;
-  const privateKey = env.GITHUB_APP_PRIVATE_KEY as string | undefined;
-  const installationId = env.GITHUB_APP_INSTALLATION_ID as string | undefined;
+export function getGitHubAppCredentials(): GitHubAppCredentials | null {
+  // Access secrets that may not be in generated Env type
+  const secrets = env as unknown as Record<string, string | undefined>;
+  const clientId = secrets.GITHUB_APP_CLIENT_ID;
+  const privateKey = secrets.GITHUB_APP_PRIVATE_KEY;
+  const installationId = secrets.GITHUB_APP_INSTALLATION_ID;
   
   if (!clientId || !privateKey || !installationId) {
     return null;

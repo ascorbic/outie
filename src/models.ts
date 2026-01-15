@@ -1,6 +1,6 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { Env, ModelTier } from "./types";
+import type { ModelTier } from "./types";
 
 // AI Gateway base URL
 const aiGatewayBase = (accountId: string, gatewayId: string) =>

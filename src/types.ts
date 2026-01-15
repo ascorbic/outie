@@ -74,28 +74,4 @@ export interface CodingTaskDecision {
   branch?: string;          // Required if action is "new"
 }
 
-// Import Sandbox type for binding
-import type { Sandbox } from "@cloudflare/sandbox";
 
-// Environment bindings
-export interface Env {
-  OUTIE: DurableObjectNamespace;
-  SANDBOX: DurableObjectNamespace<Sandbox>;
-  REPOS: R2Bucket;
-  AI: Ai;
-  // AI Gateway config
-  CF_ACCOUNT_ID: string;
-  CF_AIG_GATEWAY_ID: string;
-  // API tokens (provider keys stored in AI Gateway BYOK)
-  CF_API_TOKEN: string; // For AI Gateway auth + Browser Rendering API
-  BRAVE_SEARCH_API_KEY: string;
-  // Telegram bot integration
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_CHAT_ID?: string; // Your personal chat ID
-  TELEGRAM_WEBHOOK_SECRET?: string; // Secret for webhook verification
-
-  // Z.AI (GLM Coding Plan) - optional fallback for sandbox
-  ZAI_API_KEY?: string;
-
-  ENVIRONMENT: string;
-}
