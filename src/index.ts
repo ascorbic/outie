@@ -48,6 +48,13 @@ app.get("/health", (c) => {
 // Chat endpoint - RPC to DO
 app.post("/chat", async (c) => {
   const { message } = await c.req.json<{ message: string }>();
+  
+  // Handle /clear command
+  if (message.trim().toLowerCase() === "/clear") {
+    await getOutie(c.env).resetConversation();
+    return c.json({ response: "Conversation cleared." });
+  }
+  
   const response = await getOutie(c.env).chat(message);
   return c.json({ response });
 });
@@ -106,6 +113,15 @@ app.post("/telegram", async (c) => {
     if (!ALLOWED_TELEGRAM_USERS.has(userId)) {
       console.warn(`[TELEGRAM] Unauthorized user: ${userId}`);
       // Silent ignore for unauthorized users
+      return c.json({ ok: true });
+    }
+
+    // Handle /clear command
+    if (text.trim().toLowerCase() === "/clear") {
+      await getOutie(c.env).resetConversation();
+      await sendMessage(c.env, chatId, "Conversation cleared.", {
+        replyToMessageId: message.message_id,
+      });
       return c.json({ ok: true });
     }
 
