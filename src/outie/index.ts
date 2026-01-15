@@ -371,15 +371,23 @@ export class Outie extends DurableObject<Env> {
       });
 
       if (!markdown) {
+        log.info(`[FETCH] No content from ${url}`);
         return `No content found at ${url}`;
       }
 
+      // Debug logging
+      log.info(`[FETCH] ${url} - length: ${markdown.length}`);
+      log.info(`[FETCH] Start: ${markdown.slice(0, 200).replace(/\n/g, "\\n")}`);
+      log.info(`[FETCH] End: ${markdown.slice(-200).replace(/\n/g, "\\n")}`);
+
       // Truncate if too long
       if (markdown.length > MAX_PAGE_CONTENT_LENGTH) {
+        log.info(`[FETCH] Truncating from ${markdown.length} to ${MAX_PAGE_CONTENT_LENGTH}`);
         return markdown.slice(0, MAX_PAGE_CONTENT_LENGTH) + "\n\n[Content truncated...]";
       }
       return markdown;
     } catch (error) {
+      log.error(`[FETCH] Error fetching ${url}`, error);
       return `Fetch error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
