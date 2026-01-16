@@ -187,7 +187,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
 
   // Scheduling tools
   {
-    name: 'schedule_reminder',
+    name: 'schedule_recurring',
     description: 'Schedule a recurring reminder using cron syntax.',
     inputSchema: {
       type: 'object',
@@ -286,6 +286,28 @@ export class McpServer {
     this.ai = ctx.ai;
     this.scheduleAlarm = ctx.scheduleAlarm;
     this.sessionId = crypto.randomUUID();
+  }
+
+  /**
+   * Handle JSON-RPC request directly (for WebSocket bridge).
+   * Returns the response object without HTTP wrapping.
+   */
+  async handleJsonRpcDirect(request: JsonRpcRequest | JsonRpcRequest[]): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
+    const requests = Array.isArray(request) ? request : [request];
+    const responses: JsonRpcResponse[] = [];
+
+    for (const req of requests) {
+      const response = await this.handleJsonRpcRequest(req);
+      if (response) {
+        responses.push(response);
+      }
+    }
+
+    if (responses.length === 0) {
+      return null; // All notifications
+    }
+
+    return responses.length === 1 ? responses[0] : responses;
   }
 
   /**
@@ -418,6 +440,20 @@ export class McpServer {
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+    console.log(`[MCP] Tool call: ${name}`, JSON.stringify(args).slice(0, 200));
+    const startTime = Date.now();
+    
+    try {
+      const result = await this.executeToolInternal(name, args);
+      console.log(`[MCP] Tool ${name} completed in ${Date.now() - startTime}ms`);
+      return result;
+    } catch (err) {
+      console.error(`[MCP] Tool ${name} failed:`, err);
+      throw err;
+    }
+  }
+
+  private async executeToolInternal(name: string, args: Record<string, unknown>): Promise<string> {
     switch (name) {
       // Journal
       case 'journal_write': {
@@ -511,7 +547,7 @@ export class McpServer {
       }
 
       // Scheduling
-      case 'schedule_reminder': {
+      case 'schedule_recurring': {
         const { id: reminderId, description, payload, cron } = args as {
           id: string; description: string; payload: string; cron: string;
         };
