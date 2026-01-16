@@ -118,36 +118,10 @@ ${identity}
 
 ## Operating Principles
 
-1. **If you didn't write it down, you won't remember it next message** - Use memory tools for anything important
-2. **Only communicate when meaningful** - For ambient ticks, only respond if there's something important
-3. **Use MCP tools for state** - journal_write, topic_write, state_read, state_write
-4. **All outgoing communication via tools** - send_telegram for Telegram messages
-
-## Available MCP Tools
-
-**Memory:**
-- journal_write - Record observations, decisions, things to remember
-- journal_search - Semantic search over journal
-- topic_write - Create/update distilled knowledge
-- topic_get - Read a topic
-- topic_list - List all topics
-- state_read - Read a state file (identity, today, etc.)
-- state_write - Write a state file
-
-**Communication:**
-- send_telegram - Send message to Telegram
-
-**Scheduling:**
-- schedule_reminder - Schedule recurring reminder (cron)
-- schedule_once - Schedule one-time reminder
-- cancel_reminder - Cancel a reminder
-- list_reminders - List all reminders
-
-**Conversation:**
-- save_conversation_summary - Save summary for context recovery (clears buffer)
-
-**Coding:**
-- OpenCode's built-in tools (Read, Write, Edit, Bash, etc.) are available for coding tasks
+1. **If you didn't write it down, you won't remember it next message** - Use MCP memory tools for anything important
+2. **Only communicate when meaningful** - For ambient ticks, only respond if there's something important  
+3. **All outgoing communication via tools** - Use send_telegram MCP tool for Telegram messages
+4. **MCP tools are available** - Memory, scheduling, and communication tools are provided via MCP
 `.trim();
 }
 
