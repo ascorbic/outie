@@ -31,31 +31,29 @@ const MODELS = {
 
 /**
  * Create a model provider for the given tier
- * Uses Cloudflare AI Gateway with BYOK for Google
- * Uses direct Anthropic API (BYOK not working for Anthropic yet)
+ * Uses Cloudflare AI Gateway with BYOK for all providers
  */
 export function createModelProvider(env: Env, tier: ModelTier = "fast") {
   const config = MODELS[tier];
 
+  const aigateway = createAiGateway({
+    accountId: env.CF_ACCOUNT_ID,
+    gateway: env.CF_AIG_GATEWAY_ID,
+    apiKey: env.CF_API_TOKEN,
+  });
+
   if (config.provider === "google") {
-    // Google via AI Gateway with BYOK
-    const aigateway = createAiGateway({
-      accountId: env.CF_ACCOUNT_ID,
-      gateway: env.CF_AIG_GATEWAY_ID,
-      apiKey: env.CF_API_TOKEN,
-    });
     const google = createGoogleGenerativeAI({
       apiKey: "BYOK", // Gateway injects the real key
     });
     return aigateway([google(config.model)]);
   }
 
-  // Anthropic - call directly (BYOK not configured)
-  console.log("[MODELS] Creating Anthropic provider, key present:", !!env.ANTHROPIC_KEY);
+  // Anthropic
   const anthropic = createAnthropic({
-    apiKey: env.ANTHROPIC_KEY,
+    apiKey: "BYOK", // Gateway injects the real key
   });
-  return anthropic(config.model);
+  return aigateway([anthropic(config.model)]);
 }
 
 /**
