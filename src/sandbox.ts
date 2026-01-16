@@ -191,10 +191,35 @@ export async function runCodingTask(
   });
   console.log(`[SANDBOX] OpenCode server on port ${server.port}`);
   
-  // Subscribe to events for debugging (fire and forget)
-  client.event.subscribe({
-    onSseEvent: (event: unknown) => console.log("[OPENCODE]", event)
-  }).catch(() => { /* ignore subscription errors */ });
+  // Subscribe to events in the background for debugging
+  // TODO: Use these events to send progress updates to Telegram
+  async function consumeEvents() {
+    console.log(`[OPENCODE] Starting event subscription...`);
+    try {
+      const result = await client.event.subscribe();
+      console.log(`[OPENCODE] Got subscription result:`, Object.keys(result));
+      const { stream } = result;
+      console.log(`[OPENCODE] Starting to consume event stream...`);
+      for await (const event of stream) {
+        const e = event as { type?: string; properties?: unknown };
+        console.log(`[OPENCODE EVENT] type=${e.type ?? 'unknown'}`);
+        
+        // Log assistant text parts with more detail
+        if (e.type === 'message.part.updated') {
+          console.log(`[OPENCODE PART]`, JSON.stringify(e.properties));
+        }
+        if (e.type === 'message.updated') {
+          console.log(`[OPENCODE MSG]`, JSON.stringify(e.properties));
+        }
+      }
+      console.log(`[OPENCODE] Event stream completed normally`);
+    } catch (err) {
+      console.log(`[OPENCODE] Event subscription error:`, err);
+      throw err;
+    }
+  }
+  console.log(`[OPENCODE] Calling consumeEvents()`);
+  consumeEvents().catch(err => console.log(`[OPENCODE] consumeEvents rejected:`, err));
 
   // Try to continue existing session or create new one
   let sessionId: string;
