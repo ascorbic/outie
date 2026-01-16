@@ -196,13 +196,14 @@ export function saveStateFile(sql: SqlStorage, file: StateFile): void {
 }
 
 export function getStateFile(sql: SqlStorage, name: string): StateFile | null {
-  const row = sql.exec(
+  const rows = sql.exec(
     `SELECT name, content, updated_at FROM state_files WHERE name = ?`,
     name
-  ).one();
+  ).toArray();
 
-  if (!row) return null;
+  if (rows.length === 0) return null;
 
+  const row = rows[0];
   return {
     name: row.name as string,
     content: row.content as string,
@@ -312,13 +313,14 @@ export function saveTopic(sql: SqlStorage, topic: Topic, embedding?: Float32Arra
 }
 
 export function getTopic(sql: SqlStorage, name: string): Topic | null {
-  const row = sql.exec(
+  const rows = sql.exec(
     `SELECT id, name, content, created_at, updated_at FROM topics WHERE name = ?`,
     name
-  ).one();
+  ).toArray();
 
-  if (!row) return null;
+  if (rows.length === 0) return null;
 
+  const row = rows[0];
   return {
     id: row.id as string,
     name: row.name as string,

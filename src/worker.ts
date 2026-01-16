@@ -3,9 +3,8 @@
  * 
  * Routes requests to the Orchestrator DO:
  * - /telegram - Webhook for Telegram messages
- * - /mcp/* - MCP server for OpenCode tools
  * - /* - Web UI proxy to OpenCode
- * - /health - Health check
+ * - /health, /stats, /reset - API endpoints
  */
 
 import { Hono } from 'hono';
@@ -19,7 +18,7 @@ import {
 import type { Orchestrator } from './orchestrator';
 
 // Re-export Durable Objects for wrangler binding
-export { Orchestrator, Sandbox } from './orchestrator';
+export { Orchestrator, OutieSandbox, Sandbox } from './orchestrator';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -58,16 +57,6 @@ app.get('/health', (c) => {
   });
 });
 
-// MCP endpoint - proxy to orchestrator
-app.all('/mcp/*', async (c) => {
-  // Rewrite URL to strip /mcp prefix
-  const url = new URL(c.req.url);
-  url.pathname = url.pathname.replace(/^\/mcp/, '') || '/';
-  const request = new Request(url.toString(), c.req.raw);
-  
-  return getOrchestrator(c.env).handleMcp(request);
-});
-
 // Conversation stats
 app.get('/stats', async (c) => {
   const stats = await getOrchestrator(c.env).getConversationStats();
@@ -100,6 +89,7 @@ app.post('/telegram', async (c) => {
 
     // Only process messages
     if (!update.message?.text) {
+      console.log('[TELEGRAM] No text message to process');
       return c.json({ ok: true });
     }
 
@@ -118,10 +108,21 @@ app.post('/telegram', async (c) => {
 
     // Handle /clear command
     if (text.trim().toLowerCase() === '/clear') {
-      await getOrchestrator(c.env).resetConversation();
-      await sendMessage(c.env, chatId, 'Conversation cleared.', {
-        replyToMessageId: message.message_id,
-      });
+      console.log('[TELEGRAM] /clear command received');
+      try {
+        console.log('[TELEGRAM] Calling resetConversation...');
+        const result = await getOrchestrator(c.env).resetConversation();
+        console.log('[TELEGRAM] resetConversation result:', JSON.stringify(result));
+        const sent = await sendMessage(c.env, chatId, 'Conversation cleared.', {
+          replyToMessageId: message.message_id,
+        });
+        console.log('[TELEGRAM] Message sent:', sent);
+      } catch (clearError) {
+        console.error('[TELEGRAM] Error clearing conversation:', clearError);
+        await sendMessage(c.env, chatId, `Error clearing: ${clearError}`, {
+          replyToMessageId: message.message_id,
+        });
+      }
       return c.json({ ok: true });
     }
 
@@ -131,8 +132,11 @@ app.post('/telegram', async (c) => {
     // Forward to Orchestrator
     const response = await getOrchestrator(c.env).chat(text, 'telegram', String(chatId));
 
+    // Handle empty response (model refused/censored)
+    const replyText = response.trim() || '[No response - model may have refused to answer]';
+
     // Send response back to Telegram
-    await sendMessage(c.env, chatId, response, {
+    await sendMessage(c.env, chatId, replyText, {
       replyToMessageId: message.message_id,
     });
 
