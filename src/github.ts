@@ -6,7 +6,6 @@
  */
 
 import { SignJWT, importPKCS8 } from "jose";
-import { env } from "cloudflare:workers";
 
 export interface GitHubAppCredentials {
   clientId: string;      // Client ID (recommended over App ID)
@@ -57,7 +56,7 @@ export async function getInstallationToken(
         Authorization: `Bearer ${jwt}`,
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "Scout-Bot/1.0",
+        "User-Agent": "Outie-Bot",
       },
     }
   );
@@ -75,19 +74,19 @@ export async function getInstallationToken(
 }
 
 /**
- * Get credentials from environment (uses cloudflare:workers env import)
- * These secrets are set via `wrangler secret put` and may not be in the generated types.
+ * Get credentials from environment
  */
-export function getGitHubAppCredentials(): GitHubAppCredentials | null {
-  // Access secrets that may not be in generated Env type
-  const secrets = env as unknown as Record<string, string | undefined>;
-  const clientId = secrets.GITHUB_APP_CLIENT_ID;
-  const privateKey = secrets.GITHUB_APP_PRIVATE_KEY;
-  const installationId = secrets.GITHUB_APP_INSTALLATION_ID;
+export function getGitHubAppCredentials(env: Env): GitHubAppCredentials | null {
+  const clientId = env.GITHUB_APP_CLIENT_ID as string | undefined;
+  let privateKey = env.GITHUB_APP_PRIVATE_KEY as string | undefined;
+  const installationId = env.GITHUB_APP_INSTALLATION_ID as string | undefined;
   
   if (!clientId || !privateKey || !installationId) {
     return null;
   }
+  
+  // Handle escaped newlines (from .dev.vars or secrets)
+  privateKey = privateKey.replace(/\\n/g, '\n');
   
   return { clientId, privateKey, installationId };
 }
