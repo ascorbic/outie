@@ -116,7 +116,9 @@ function formatSummary(summary?: ConversationSummary): string {
 
 export function buildSystemPrompt(identity: string): string {
   return `
+<identity>
 ${identity}
+</identity>
 
 ## Operating Principles
 
@@ -124,6 +126,7 @@ ${identity}
 2. **Only communicate when meaningful, but write everything down** - For ambient ticks, only respond if there's something important, but journal everything
 3. **All outgoing communication via tools** - Use send_telegram MCP tool for Telegram messages
 4. **Update topics when you learn something new** - Keep your journal updated with new insights
+5. You can update your identity and state files at any time by writing to the appropriate state file. Keep them up to date as you learn more about them and yourself.
 `.trim();
 }
 
@@ -132,8 +135,6 @@ ${identity}
 // =============================================================================
 
 export function buildDynamicContext(context: BuiltContext, trigger: TriggerContext): string {
-  const { today, matt } = extractCoreStateFiles(context.stateFiles);
-
   return `
 <current_time>
 <timestamp>${context.timestamp}</timestamp>
@@ -148,11 +149,11 @@ export function buildDynamicContext(context: BuiltContext, trigger: TriggerConte
 
 <state_files>
 <today>
-${today}
+${context.stateFiles['today'] ?? '(no today file)'}
 </today>
 
 <matt>
-${matt}
+${context.stateFiles['matt'] ?? '(no matt file)'}
 </matt>
 </state_files>
 

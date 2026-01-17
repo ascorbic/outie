@@ -1,9 +1,9 @@
 /**
  * MCP Server (Streamable HTTP Transport)
- * 
+ *
  * Exposes memory, scheduling, and communication tools over MCP.
  * OpenCode in the sandbox connects to this server.
- * 
+ *
  * Implements the MCP Streamable HTTP transport:
  * - POST for JSON-RPC requests
  * - Responses can be JSON or SSE stream
@@ -18,7 +18,6 @@ import type {
 } from './types';
 import {
   saveJournalEntry,
-  getRecentJournal,
   saveSummary,
   getRecentSummaries,
   clearConversation,
@@ -145,7 +144,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['query'],
     },
   },
-  
+
   // State file tools
   {
     name: 'state_read',
@@ -318,7 +317,7 @@ export class McpServer {
 
     // Check session header for existing sessions
     const requestSessionId = request.headers.get('Mcp-Session-Id');
-    
+
     if (method === 'POST') {
       return this.handlePost(request, requestSessionId);
     }
@@ -343,7 +342,7 @@ export class McpServer {
 
   private async handlePost(request: Request, sessionId: string | null): Promise<Response> {
     const body = await request.json() as JsonRpcRequest | JsonRpcRequest[];
-    
+
     // Handle batch or single request
     const requests = Array.isArray(body) ? body : [body];
     const responses: JsonRpcResponse[] = [];
@@ -362,7 +361,7 @@ export class McpServer {
 
     // Return single response or array
     const responseBody = responses.length === 1 ? responses[0] : responses;
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -442,7 +441,7 @@ export class McpServer {
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {
     console.log(`[MCP] Tool call: ${name}`, JSON.stringify(args).slice(0, 200));
     const startTime = Date.now();
-    
+
     try {
       const result = await this.executeToolInternal(name, args);
       console.log(`[MCP] Tool ${name} completed in ${Date.now() - startTime}ms`);
@@ -473,7 +472,7 @@ export class McpServer {
         const { query, limit = 5 } = args as { query: string; limit?: number };
         const results = await searchJournal(this.ai, this.sql, query, limit);
         if (results.length === 0) return 'No matching journal entries found.';
-        return results.map((r: { entry: JournalEntry; score: number }) => 
+        return results.map((r: { entry: JournalEntry; score: number }) =>
           `[${new Date(r.entry.timestamp).toISOString().split('T')[0]}] [${r.entry.topic}] (${(r.score * 100).toFixed(0)}% match)\n${r.entry.content}`
         ).join('\n\n---\n\n');
       }
@@ -505,7 +504,7 @@ export class McpServer {
       case 'topic_list': {
         const topics = listTopics(this.sql);
         if (topics.length === 0) return 'No topics yet.';
-        return topics.map(t => 
+        return topics.map(t =>
           `- ${t.name} (updated ${new Date(t.updatedAt).toLocaleDateString()})`
         ).join('\n');
       }
@@ -514,7 +513,7 @@ export class McpServer {
         const { query, limit = 5 } = args as { query: string; limit?: number };
         const results = await searchTopics(this.ai, this.sql, query, limit);
         if (results.length === 0) return 'No matching topics found.';
-        return results.map((r: { topic: Topic; score: number }) => 
+        return results.map((r: { topic: Topic; score: number }) =>
           `## ${r.topic.name} (${(r.score * 100).toFixed(0)}% match)\n${r.topic.content}`
         ).join('\n\n---\n\n');
       }
@@ -570,7 +569,7 @@ export class McpServer {
         const scheduledTime = new Date(datetime).getTime();
         if (isNaN(scheduledTime)) return `Invalid datetime: ${datetime}`;
         if (scheduledTime <= Date.now()) return `Cannot schedule in the past: ${datetime}`;
-        
+
         const reminder: Reminder = {
           id: reminderId,
           description,
@@ -593,7 +592,7 @@ export class McpServer {
         const reminders = getAllReminders(this.sql);
         if (reminders.length === 0) return 'No scheduled reminders.';
         return reminders.map(r => {
-          const schedule = r.cronExpression ?? 
+          const schedule = r.cronExpression ??
             (r.scheduledTime ? new Date(r.scheduledTime).toISOString() : 'unknown');
           return `- ${r.id}: ${r.description} (${schedule})`;
         }).join('\n');
