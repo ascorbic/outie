@@ -16,6 +16,7 @@ import {
   type TelegramUpdate,
 } from './telegram';
 import type { Orchestrator } from './orchestrator';
+import { generateHTML } from './ui/template';
 
 // Re-export Durable Objects for wrangler binding
 export { Orchestrator, OutieSandbox, Sandbox } from './orchestrator';
@@ -145,6 +146,34 @@ app.post('/telegram', async (c) => {
     console.error(`[TELEGRAM] Error: ${error}`);
     return c.json({ ok: true }); // Always return 200 to Telegram
   }
+});
+
+// =============================================================================
+// Memory Browser UI
+// =============================================================================
+
+// Main memory browser UI
+app.get('/memories', async (c) => {
+  const orchestrator = getOrchestrator(c.env);
+  const [data, sessionStatus] = await Promise.all([
+    orchestrator.getAllData(),
+    orchestrator.getSessionStatus(),
+  ]);
+
+  const html = generateHTML({ ...data, sessionStatus });
+  return c.html(html);
+});
+
+// API endpoint for JSON data
+app.get('/api/data', async (c) => {
+  const data = await getOrchestrator(c.env).getAllData();
+  return c.json(data);
+});
+
+// Session status endpoint
+app.get('/api/session', async (c) => {
+  const status = await getOrchestrator(c.env).getSessionStatus();
+  return c.json(status);
 });
 
 // =============================================================================

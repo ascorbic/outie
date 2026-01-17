@@ -27,7 +27,19 @@ import {
 import type { OpencodeClient, Config } from '@opencode-ai/sdk';
 
 import type { TriggerContext, ConversationMessage, Reminder } from './types';
-import { initSchema, appendConversation, getAllReminders, deleteReminder, getConversationStats, clearConversation } from './state';
+import {
+  initSchema,
+  appendConversation,
+  getAllReminders,
+  deleteReminder,
+  getConversationStats,
+  clearConversation,
+  getRecentConversation,
+  getRecentJournal,
+  getAllStateFiles,
+  getRecentSummaries,
+  listTopics,
+} from './state';
 import { buildContext, buildSystemPrompt, buildDynamicContext, buildPrompt } from './context';
 import { McpServer } from './mcp-server';
 import { getNextCronTime } from '../scheduling';
@@ -500,5 +512,40 @@ export class Orchestrator extends DurableObject<Env> {
   async getConversationStats(): Promise<{ messageCount: number; estimatedTokens: number; needsCompaction: boolean }> {
     await this.init();
     return getConversationStats(this.ctx.storage.sql);
+  }
+
+  // ==========================================================================
+  // Web UI Data Methods
+  // ==========================================================================
+
+  async getAllData(): Promise<{
+    conversation: ConversationMessage[];
+    journal: ReturnType<typeof getRecentJournal>;
+    stateFiles: Record<string, string>;
+    reminders: Reminder[];
+    summaries: ReturnType<typeof getRecentSummaries>;
+    topics: ReturnType<typeof listTopics>;
+    stats: { messageCount: number; estimatedTokens: number; needsCompaction: boolean };
+  }> {
+    await this.init();
+    return {
+      conversation: getRecentConversation(this.ctx.storage.sql, 100),
+      journal: getRecentJournal(this.ctx.storage.sql, 100),
+      stateFiles: getAllStateFiles(this.ctx.storage.sql),
+      reminders: getAllReminders(this.ctx.storage.sql),
+      summaries: getRecentSummaries(this.ctx.storage.sql, 10),
+      topics: listTopics(this.ctx.storage.sql),
+      stats: getConversationStats(this.ctx.storage.sql),
+    };
+  }
+
+  async getSessionStatus(): Promise<{
+    sessionId: string | null;
+    isProcessing: boolean;
+  }> {
+    return {
+      sessionId: this.currentSessionId,
+      isProcessing: this.isProcessing,
+    };
   }
 }
