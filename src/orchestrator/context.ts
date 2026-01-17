@@ -1,6 +1,6 @@
 /**
  * Context Builder
- * 
+ *
  * Builds the context that gets injected into each OpenCode invocation.
  * Follows the Acme pattern:
  * - System prompt (static, caches well)
@@ -72,15 +72,17 @@ function formatConversation(messages: ConversationMessage[]): string {
   }
 
   return messages.map(m => {
-    const time = new Date(m.timestamp).toLocaleTimeString('en-GB', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    const time = new Date(m.timestamp).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
     const prefix = m.role === 'user' ? 'User' : 'You';
-    const truncated = m.content.length > 500 
-      ? m.content.slice(0, 500) + '...' 
+    const truncated = m.content.length > 5000
+      ? m.content.slice(0, 5000) + '...'
       : m.content;
-    return `[${time}] ${prefix}: ${truncated}`;
+    return `<message time="${time}" from="${prefix}">
+${truncated}
+</message>`;
   }).join('\n\n');
 }
 
@@ -91,7 +93,7 @@ function formatJournal(entries: JournalEntry[]): string {
 
   return entries.map(e => {
     const date = new Date(e.timestamp).toISOString().split('T')[0];
-    return `[${date}] [${e.topic}] ${e.content}`;
+    return `<journal date="${date}" topic="${e.topic}">${e.content}</journal>`;
   }).join('\n\n');
 }
 
@@ -118,10 +120,10 @@ ${identity}
 
 ## Operating Principles
 
-1. **If you didn't write it down, you won't remember it next message** - Use MCP memory tools for anything important
-2. **Only communicate when meaningful** - For ambient ticks, only respond if there's something important  
+1. **If you didn't write it down, you won't remember it next message** - Use memory tools for anything important
+2. **Only communicate when meaningful, but write everything down** - For ambient ticks, only respond if there's something important, but journal everything
 3. **All outgoing communication via tools** - Use send_telegram MCP tool for Telegram messages
-4. **MCP tools are available** - Memory, scheduling, and communication tools are provided via MCP
+4. **Update topics when you learn something new** - Keep your journal updated with new insights
 `.trim();
 }
 
