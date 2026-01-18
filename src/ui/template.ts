@@ -63,6 +63,7 @@ export function generateHTML(data: {
       font-size: 14px;
       display: flex;
       gap: 20px;
+      flex-wrap: wrap;
     }
 
     .stats span {
@@ -82,6 +83,17 @@ export function generateHTML(data: {
       background: ${data.sessionStatus.isProcessing ? '#fff' : '#000'};
       color: ${data.sessionStatus.isProcessing ? '#000' : '#fff'};
       font-weight: bold;
+    }
+
+    .session-status a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+    }
+
+    .session-status a:hover {
+      background: ${data.sessionStatus.isProcessing ? '#000' : '#fff'};
+      color: ${data.sessionStatus.isProcessing ? '#fff' : '#000'};
     }
 
     .container {
@@ -244,6 +256,152 @@ export function generateHTML(data: {
       padding: 5px;
       font-weight: bold;
     }
+
+    /* Responsive Design */
+    @media (max-width: 1024px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+
+      .block.full {
+        grid-column: span 1;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .stats {
+        font-size: 12px;
+        gap: 10px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      header {
+        padding: 15px;
+        border-width: 3px;
+      }
+
+      h1 {
+        font-size: 20px;
+        letter-spacing: 1px;
+      }
+
+      .stats {
+        font-size: 11px;
+        gap: 8px;
+      }
+
+      .stats span {
+        border-left: none;
+        padding-left: 0;
+      }
+
+      .container {
+        gap: 10px;
+      }
+
+      .block {
+        border-width: 3px;
+      }
+
+      .block-header {
+        font-size: 16px;
+        padding: 8px;
+      }
+
+      .block-content {
+        padding: 10px;
+        max-height: 400px;
+      }
+
+      .message, .entry, .state-file {
+        border-width: 2px;
+        padding: 8px;
+        margin-bottom: 8px;
+      }
+
+      th, td {
+        padding: 6px;
+        font-size: 12px;
+      }
+
+      .refresh {
+        padding: 10px 20px;
+        font-size: 14px;
+        bottom: 10px;
+        right: 10px;
+        border-width: 3px;
+      }
+
+      pre {
+        font-size: 12px;
+      }
+
+      .timestamp {
+        font-size: 11px;
+      }
+
+      .badge {
+        font-size: 10px;
+        padding: 2px 4px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 5px;
+      }
+
+      header {
+        padding: 10px;
+        border-width: 2px;
+      }
+
+      h1 {
+        font-size: 16px;
+        letter-spacing: 0.5px;
+      }
+
+      .stats {
+        font-size: 10px;
+        gap: 5px;
+        flex-direction: column;
+      }
+
+      .session-status {
+        font-size: 11px;
+        padding: 8px;
+      }
+
+      .block-header {
+        font-size: 14px;
+        padding: 6px;
+      }
+
+      .block-content {
+        padding: 8px;
+        max-height: 300px;
+      }
+
+      .message-header, .entry-header {
+        font-size: 11px;
+      }
+
+      pre {
+        font-size: 11px;
+      }
+
+      .refresh {
+        padding: 8px 15px;
+        font-size: 12px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -259,7 +417,7 @@ export function generateHTML(data: {
     </div>
     <div class="session-status">
       ${data.sessionStatus.isProcessing ? '● PROCESSING' : '○ IDLE'}
-      ${data.sessionStatus.sessionId ? `// SESSION: ${data.sessionStatus.sessionId.slice(0, 8)}` : '// NO ACTIVE SESSION'}
+      ${data.sessionStatus.sessionId ? `// SESSION: <a href="/?session=${data.sessionStatus.sessionId}" target="_blank">${data.sessionStatus.sessionId.slice(0, 8)}</a>` : '// NO ACTIVE SESSION'}
     </div>
   </header>
 
